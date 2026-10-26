@@ -64,10 +64,27 @@ def launchd(root):
         if '_PanicOnCrash' in job:
             job['_PanicOnCrasX'] = job.pop('_PanicOnCrash')
             renamed += 1
-    removed_labels = {'com.apple.CommCenter', 'com.apple.bluetoothd', 'com.apple.fairplayd.H2'}
-    removed = [k for k, j in jobs.items() if j.get('Label') in removed_labels]
+    removed_labels = {
+        'com.apple.CommCenter',
+        'com.apple.bluetoothd',
+        'com.apple.fairplayd.H2',
+        'com.apple.wifip2pd',
+        'com.apple.wifivelocityd',
+        'com.apple.sirittsd',
+        'com.apple.voiced',
+        'com.apple.siriinferenced',
+        'com.apple.nfcd',
+        'com.apple.biomed',
+        'com.apple.biometrickitd',
+        'com.apple.searchpartyd',
+    }
+    removed = [k for k, j in jobs.items()
+               if k in removed_labels or (isinstance(j, dict) and j.get('Label') in removed_labels)]
     for k in removed:
         del jobs[k]
+    for job in jobs.values():
+        if isinstance(job, dict) and job.get('Label') == 'org.iosonpixel.dropbear':
+            job['ThrottleInterval'] = 30
     save(path, plist, st.st_uid, st.st_gid, st.st_mode & 0o7777)
     print(f'launchd.plist: {renamed} _PanicOnCrash renamed, {len(removed)} unsupported daemon jobs removed')
 

@@ -135,11 +135,31 @@ static void waitForResource(id resource);
 @property(nonatomic,strong) id<MTLHeap> parentHeap;
 @property(nonatomic) NSUInteger heapOffset;
 @end
+struct SurfaceKey {
+ uint32_t id;uintptr_t base;size_t bytes;
+ bool operator==(const SurfaceKey &o) const {return id==o.id && base==o.base && bytes==o.bytes;}
+};
+struct SurfaceKeyHash {
+ size_t operator()(const SurfaceKey &k) const {return std::hash<uint64_t>{}(((uint64_t)k.id<<32)^(k.base>>12)^k.bytes);}
+};
+static std::mutex gSurfaceSeedLock;
+static std::unordered_map<SurfaceKey,uint32_t,SurfaceKeyHash> gFlushedSurfaceSeeds;
+static SurfaceKey surfaceKey(IOSurfaceRef s) {
+ if(!s)return SurfaceKey{};
+ const size_t page=(size_t)getpagesize();
+ return SurfaceKey{IOSurfaceGetID(s),reinterpret_cast<uintptr_t>(IOSurfaceGetBaseAddress(s))&~(page-1),IOSurfaceGetAllocSize(s)};
+}
+static void invalidateSurfaceSeed(IOSurfaceRef s) {
+ if(!s)return;
+ const SurfaceKey k=surfaceKey(s);
+ std::lock_guard<std::mutex> lock(gSurfaceSeedLock);
+ gFlushedSurfaceSeeds.erase(k);
+}
 @implementation NBBuffer
 - (void)dealloc {
  const NSUInteger length=nmb_buffer_length(_handle);nmb_buffer_release(_handle);
  if(_deallocator)_deallocator(_wrapped,length);
- if(_surfaceOwner)CFRelease(_surfaceOwner);
+ if(_surfaceOwner){invalidateSurfaceSeed(_surfaceOwner);CFRelease(_surfaceOwner);}
 }
 - (NSUInteger)length {return nmb_buffer_length(_handle);}
 - (void *)contents {return nmb_buffer_contents(_handle);}
@@ -158,36 +178,59 @@ static void waitForResource(id resource);
 - (IOSurfaceRef)iosurface {return nullptr;}   // a buffer is never the backing of a surface here (surfaces back textures)
 NB_RESOURCE_SPI
 @end
-// Reuse only an import still held by a texture/view or pending command. Weak
-// values never extend a GPU allocation's lifetime. The strong buffer snapshot
-// and its retained surface prevent object/address reuse during a hit. A new
-// mapping, allocation identity or size needs a separate import; ordinary
-// caller-owned no-copy buffers do not enter this cache.
+// Reuse active imports via weak map, plus a bounded strong LRU (up to 24 active
+// surfaces / 96 MB) so swapchain and composited layer IOSurfaces stay imported
+// across frames instead of paying BoImport + BoMap + BoFree on every 60 Hz frame.
 static NSMapTable<NSValue *,NBBuffer *> *gSurfaceImports;
+static NSMutableArray<NBBuffer *> *gSurfaceLRU;
+static size_t gSurfaceLRUBytes;
 static std::mutex gSurfaceImportLock;
+static void touchSurfaceLRU(NBBuffer *buffer,size_t bytes,NSMutableArray<NBBuffer *> *evicted) {
+ if(!buffer || bytes>(64u<<20))return;
+ if(!gSurfaceLRU)gSurfaceLRU=[NSMutableArray arrayWithCapacity:24];
+ const NSUInteger existing=[gSurfaceLRU indexOfObjectIdenticalTo:buffer];
+ if(existing!=NSNotFound){[gSurfaceLRU removeObjectAtIndex:existing];[gSurfaceLRU addObject:buffer];return;}
+ const size_t page=(size_t)getpagesize();
+ while(gSurfaceLRU.count && (gSurfaceLRU.count>=24 || gSurfaceLRUBytes+bytes>(96u<<20))) {
+  NBBuffer *old=gSurfaceLRU.firstObject;
+  const size_t oldBytes=old.surfaceOwner?((IOSurfaceGetAllocSize(old.surfaceOwner)+page-1)&~(page-1)):0;
+  gSurfaceLRUBytes=gSurfaceLRUBytes>=oldBytes?gSurfaceLRUBytes-oldBytes:0;
+  [evicted addObject:old];
+  [gSurfaceLRU removeObjectAtIndex:0];
+ }
+ [gSurfaceLRU addObject:buffer];
+ gSurfaceLRUBytes+=bytes;
+}
 static NBBuffer *surfaceBuffer(IOSurfaceRef surface,void *base,size_t bytes) {
  struct Key {uint64_t identity,address,bytes;};
  const Key value={IOSurfaceGetID(surface),(uintptr_t)base,bytes};
  NSValue *key=value.identity?[NSValue valueWithBytes:&value objCType:@encode(Key)]:nil;
- std::lock_guard<std::mutex> lock(gSurfaceImportLock);
- if(!gSurfaceImports)gSurfaceImports=[NSMapTable strongToWeakObjectsMapTable];
- NBBuffer *buffer=key?[gSurfaceImports objectForKey:key]:nil;
- if(buffer)return buffer;
- NmbBuffer *handle=nmb_buffer_new_no_copy(gDevice,base,bytes,MTLResourceStorageModeShared);
- if(!handle){NBLOG(@"native-metal: surface import refused: %@",lastError());return nil;}
- buffer=[NBBuffer new];buffer.handle=handle;buffer.options=MTLResourceStorageModeShared;
- buffer.surfaceOwner=(IOSurfaceRef)CFRetain(surface);
- if(key) {
-  // Bound metadata without retaining old frames. Evicting an association is
-  // harmless: its owners still retain the actual import until their own end.
-  if(gSurfaceImports.count>=256) {
-   for(NSValue *old in gSurfaceImports.keyEnumerator.allObjects)
-    if(![gSurfaceImports objectForKey:old])[gSurfaceImports removeObjectForKey:old];
-   if(gSurfaceImports.count>=256)[gSurfaceImports removeObjectForKey:gSurfaceImports.keyEnumerator.nextObject];
+ NSMutableArray<NBBuffer *> *evicted=[NSMutableArray array];
+ NBBuffer *result=nil;
+ {
+  std::lock_guard<std::mutex> lock(gSurfaceImportLock);
+  if(!gSurfaceImports)gSurfaceImports=[NSMapTable strongToWeakObjectsMapTable];
+  NBBuffer *buffer=key?[gSurfaceImports objectForKey:key]:nil;
+  if(buffer){touchSurfaceLRU(buffer,bytes,evicted);result=buffer;}
+  else {
+   NmbBuffer *handle=nmb_buffer_new_no_copy(gDevice,base,bytes,MTLResourceStorageModeShared);
+   if(!handle){NBLOG(@"native-metal: surface import refused: %@",lastError());return nil;}
+   buffer=[NBBuffer new];buffer.handle=handle;buffer.options=MTLResourceStorageModeShared;
+   buffer.surfaceOwner=(IOSurfaceRef)CFRetain(surface);
+   if(key) {
+    if(gSurfaceImports.count>=256) {
+     for(NSValue *old in gSurfaceImports.keyEnumerator.allObjects)
+      if(![gSurfaceImports objectForKey:old])[gSurfaceImports removeObjectForKey:old];
+     if(gSurfaceImports.count>=256)[gSurfaceImports removeObjectForKey:gSurfaceImports.keyEnumerator.nextObject];
+    }
+    [gSurfaceImports setObject:buffer forKey:key];
+    touchSurfaceLRU(buffer,bytes,evicted);
+   }
+   result=buffer;
   }
-  [gSurfaceImports setObject:buffer forKey:key];
  }
- return buffer;
+ (void)evicted;
+ return result;
 }
 static bool textureDescriptor(MTLTextureDescriptor *d,NmbTextureDescriptor *out) {
  if(!d)return false;
@@ -237,6 +280,7 @@ NB_RESOURCE_SPI
  return [self view:nmb_texture_new_view(_handle,format,type,l,s,false)];
 }
 - (void)replaceRegion:(MTLRegion)r mipmapLevel:(NSUInteger)level slice:(NSUInteger)slice withBytes:(const void *)bytes bytesPerRow:(NSUInteger)row bytesPerImage:(NSUInteger)image {
+ if(_surface)invalidateSurfaceSeed(_surface);
  const uint64_t region[6]={r.origin.x,r.origin.y,r.origin.z,r.size.width,r.size.height,r.size.depth};
  const uint64_t length=(r.size.depth>1?image*(r.size.depth-1):0)+row*r.size.height;
  if(!nmb_texture_replace(_handle,region,level,slice,bytes,row,image,length))NBLOG(@"native-metal: replaceRegion refused: %@",lastError());
@@ -253,25 +297,61 @@ NB_RESOURCE_SPI
  [self getBytes:bytes bytesPerRow:row bytesPerImage:row*r.size.height fromRegion:r mipmapLevel:level slice:0];
 }
 @end
-// A command can use many independent imports/views of one IOSurface. Their
-// owners keep the mapping live through this phase. Maintain each exact CPU
-// range once; no address identity or decision is carried into another phase
-// or command, and distinct/partially overlapping ranges retain their calls.
-static void flushSurfaces(NSMutableSet *surfaces) {
- if(!surfaces.count)return;
- std::vector<std::pair<uintptr_t,size_t>> ranges;
- ranges.reserve(surfaces.count);
- const size_t page=(size_t)getpagesize();
- for(NBTexture *texture in surfaces)if(texture.surface)
-  ranges.emplace_back(reinterpret_cast<uintptr_t>(IOSurfaceGetBaseAddress(texture.surface))&~(page-1),IOSurfaceGetAllocSize(texture.surface));
+// Maintain CPU/GPU cache coherency on non-coherent Adreno 640 without re-flushing
+// static read-only IOSurfaces twice per 60 Hz frame:
+// - Commit: flush all written IOSurfaces (eliminating any dirty CPU lines that
+//   could evict over GPU writes) plus only those read IOSurfaces whose shared
+//   SweetSurface seed changed since last flush.
+// - Finish: flush only written IOSurfaces (read-only textures were not modified
+//   by the GPU) and record their post-GPU seed.
+static void flushRanges(std::vector<std::pair<uintptr_t,size_t>> &ranges) {
+ if(ranges.empty())return;
  std::sort(ranges.begin(),ranges.end());
  const auto last=std::unique(ranges.begin(),ranges.end());
  gSurfaceFlushDuplicates+=(uint64_t)(ranges.end()-last);
  for(auto it=ranges.begin();it!=last;++it) {
+  if(!it->first || !it->second)continue;
   const uint64_t began=nowUs();
   sys_dcache_flush(reinterpret_cast<void *>(it->first),it->second);
   gSurfaceFlushBytes+=it->second;gTimeSurfaceFlush.add(began);
  }
+}
+static void flushCommitSurfaces(NSMutableSet *readSurfaces,NSMutableSet *writtenSurfaces) {
+ if(!readSurfaces.count && !writtenSurfaces.count)return;
+ std::vector<std::pair<uintptr_t,size_t>> ranges;
+ ranges.reserve(readSurfaces.count+writtenSurfaces.count);
+ {
+  std::lock_guard<std::mutex> lock(gSurfaceSeedLock);
+  if(gFlushedSurfaceSeeds.size()>=512)gFlushedSurfaceSeeds.clear();
+  for(NBTexture *texture in writtenSurfaces)if(texture.surface) {
+   const SurfaceKey k=surfaceKey(texture.surface);
+   gFlushedSurfaceSeeds.erase(k);
+   ranges.emplace_back(k.base,k.bytes);
+  }
+  for(NBTexture *texture in readSurfaces)if(texture.surface && ![writtenSurfaces containsObject:texture]) {
+   const SurfaceKey k=surfaceKey(texture.surface);
+   const uint32_t seed=IOSurfaceGetSeed(texture.surface);
+   if(!IOSurfaceGetPlaneCount(texture.surface)) {
+    auto it=gFlushedSurfaceSeeds.find(k);
+    if(it!=gFlushedSurfaceSeeds.end() && it->second==seed)continue;
+   }
+   gFlushedSurfaceSeeds[k]=seed;
+   ranges.emplace_back(k.base,k.bytes);
+  }
+ }
+ flushRanges(ranges);
+}
+static void flushFinishSurfaces(NSMutableSet *writtenSurfaces) {
+ if(!writtenSurfaces.count)return;
+ std::vector<std::pair<uintptr_t,size_t>> ranges;
+ ranges.reserve(writtenSurfaces.count);
+ for(NBTexture *texture in writtenSurfaces)if(texture.surface)
+  ranges.emplace_back(reinterpret_cast<uintptr_t>(IOSurfaceGetBaseAddress(texture.surface)),IOSurfaceGetAllocSize(texture.surface));
+ flushRanges(ranges);
+ std::lock_guard<std::mutex> lock(gSurfaceSeedLock);
+ if(gFlushedSurfaceSeeds.size()>=512)gFlushedSurfaceSeeds.clear();
+ for(NBTexture *texture in writtenSurfaces)if(texture.surface)
+  gFlushedSurfaceSeeds[surfaceKey(texture.surface)]=IOSurfaceGetSeed(texture.surface);
 }
 static NBTexture *textureOnBuffer(NBBuffer *buffer,MTLTextureDescriptor *d,NSUInteger offset,NSUInteger row,bool surface) {
  NmbTextureDescriptor descriptor;if(!buffer || !textureDescriptor(d,&descriptor))return nil;
@@ -511,13 +591,14 @@ static void notified(void *context,uint64_t value) {
 @property(nonatomic) uint64_t committedUs;
 @property(nonatomic) uint32_t commitIndex;
 @property(nonatomic,strong) NSMutableArray *scheduledHandlers,*completedHandlers;
-@property(nonatomic,strong) NSMutableSet *surfaces;
+@property(nonatomic,strong) NSMutableSet *readSurfaces,*writtenSurfaces;
 // Runtime handles retain GPU storage, but only the Objective-C owner retains
 // a no-copy deallocator, its memory owner and texture/heap ancestry.
 @property(nonatomic,strong) NSMutableSet *resourceOwners;
 @property(nonatomic,strong) dispatch_group_t handlers;
 @property(nonatomic,strong) dispatch_group_t schedulingHandlers;
 @property(nonatomic) BOOL schedulingDelivered;
+- (NSMutableDictionary *)userDictionary;
 - (void)refuse:(NSString *)what;
 @end
 @interface NBEncoder : NBObject
@@ -561,7 +642,10 @@ static void waitForResource(id resource) {
 - (void)texture:(id<MTLTexture>)texture index:(NSUInteger)index stage:(uint32_t)stage {
  if(texture && ![(id)texture isKindOfClass:[NBTexture class]]){[_commandBuffer refuse:@"foreign texture"];return;}
  if(texture)[_commandBuffer.resourceOwners addObject:texture];
- if(texture && [(NBTexture *)texture surface])[_commandBuffer.surfaces addObject:texture];
+ if(texture && [(NBTexture *)texture surface]) {
+  [_commandBuffer.readSurfaces addObject:texture];
+  if(stage==0 && ([(NBTexture *)texture usage]&MTLTextureUsageShaderWrite))[_commandBuffer.writtenSurfaces addObject:texture];
+ }
  [self check:nmb_encoder_set_texture(_handle,stage,texture?[(NBTexture *)texture handle]:nullptr,(uint32_t)index) what:"setTexture"];
 }
 - (void)sampler:(id<MTLSamplerState>)sampler index:(NSUInteger)index stage:(uint32_t)stage {
@@ -727,13 +811,10 @@ static void waitForResource(id resource) {
  for(size_t i=0;i<count;i++)[self.commandBuffer.resourceOwners addObject:objects[i]];
  return true;
 }
-- (bool)textures:(__unsafe_unretained id *)objects count:(size_t)count {
- for(size_t i=0;i<count;i++) {
-  id o=objects[i];
-  if(![o isKindOfClass:[NBTexture class]]){[self.commandBuffer refuse:@"missing or foreign blit texture"];return false;}
-  [self.commandBuffer.resourceOwners addObject:o];
-  if([(NBTexture *)o surface])[self.commandBuffer.surfaces addObject:o];
- }
+- (bool)useTexture:(id)o write:(bool)write {
+ if(![o isKindOfClass:[NBTexture class]]){[self.commandBuffer refuse:@"missing or foreign blit texture"];return false;}
+ [self.commandBuffer.resourceOwners addObject:o];
+ if([(NBTexture *)o surface])[write?self.commandBuffer.writtenSurfaces:self.commandBuffer.readSurfaces addObject:o];
  return true;
 }
 - (void)copyFromBuffer:(id<MTLBuffer>)s sourceOffset:(NSUInteger)so toBuffer:(id<MTLBuffer>)d destinationOffset:(NSUInteger)dO size:(NSUInteger)n {
@@ -746,12 +827,12 @@ static void waitForResource(id resource) {
 }
 - (void)copyFromTexture:(id<MTLTexture>)s sourceSlice:(NSUInteger)ss sourceLevel:(NSUInteger)sl sourceOrigin:(MTLOrigin)so sourceSize:(MTLSize)z
               toTexture:(id<MTLTexture>)d destinationSlice:(NSUInteger)ds destinationLevel:(NSUInteger)dl destinationOrigin:(MTLOrigin)dO {
- if(![self textures:NB_OBJECTS(s,d) count:2])return;
+ if(![self useTexture:s write:false] || ![self useTexture:d write:true])return;
  const uint64_t a[3]={so.x,so.y,so.z},size[3]={z.width,z.height,z.depth},b[3]={dO.x,dO.y,dO.z};
  [self check:nmb_blit_copy_texture(self.handle,[(NBTexture *)s handle],ss,sl,a,size,[(NBTexture *)d handle],ds,dl,b) what:"copyFromTexture:toTexture:"];
 }
 - (void)copyFromTexture:(id<MTLTexture>)s toTexture:(id<MTLTexture>)d {
- if(![self textures:NB_OBJECTS(s,d) count:2])return;
+ if(![self useTexture:s write:false] || ![self useTexture:d write:true])return;
  const NSUInteger levels=MIN(s.mipmapLevelCount,d.mipmapLevelCount),slices=MIN(s.arrayLength,d.arrayLength);
  for(NSUInteger slice=0;slice<slices;slice++)for(NSUInteger level=0;level<levels;level++) {
   MTLSize size=MTLSizeMake(MAX(s.width>>level,(NSUInteger)1),MAX(s.height>>level,(NSUInteger)1),MAX(s.depth>>level,(NSUInteger)1));
@@ -762,18 +843,18 @@ static void waitForResource(id resource) {
 - (void)copyFromBuffer:(id<MTLBuffer>)s sourceOffset:(NSUInteger)o sourceBytesPerRow:(NSUInteger)row sourceBytesPerImage:(NSUInteger)image
             sourceSize:(MTLSize)z toTexture:(id<MTLTexture>)d destinationSlice:(NSUInteger)slice destinationLevel:(NSUInteger)level
      destinationOrigin:(MTLOrigin)dO {
- if(![self buffers:NB_OBJECTS(s) count:1] || ![self textures:NB_OBJECTS(d) count:1])return;
+ if(![self buffers:NB_OBJECTS(s) count:1] || ![self useTexture:d write:true])return;
  const uint64_t size[3]={z.width,z.height,z.depth},b[3]={dO.x,dO.y,dO.z};
  [self check:nmb_blit_buffer_to_texture(self.handle,[(NBBuffer *)s handle],o,row,image,size,[(NBTexture *)d handle],slice,level,b) what:"copyFromBuffer:toTexture:"];
 }
 - (void)copyFromTexture:(id<MTLTexture>)s sourceSlice:(NSUInteger)slice sourceLevel:(NSUInteger)level sourceOrigin:(MTLOrigin)so sourceSize:(MTLSize)z
                toBuffer:(id<MTLBuffer>)d destinationOffset:(NSUInteger)o destinationBytesPerRow:(NSUInteger)row destinationBytesPerImage:(NSUInteger)image {
- if(![self textures:NB_OBJECTS(s) count:1] || ![self buffers:NB_OBJECTS(d) count:1])return;
+ if(![self useTexture:s write:false] || ![self buffers:NB_OBJECTS(d) count:1])return;
  const uint64_t a[3]={so.x,so.y,so.z},size[3]={z.width,z.height,z.depth};
  [self check:nmb_blit_texture_to_buffer(self.handle,[(NBTexture *)s handle],slice,level,a,size,[(NBBuffer *)d handle],o,row,image) what:"copyFromTexture:toBuffer:"];
 }
 - (void)generateMipmapsForTexture:(id<MTLTexture>)t {
- if(![self textures:NB_OBJECTS(t) count:1])return;
+ if(![self useTexture:t write:false] || ![self useTexture:t write:true])return;
  [self check:nmb_blit_generate_mipmaps(self.handle,[(NBTexture *)t handle]) what:"generateMipmapsForTexture"];
 }
 - (void)synchronizeResource:(id<MTLResource>)r {(void)r;}
@@ -781,11 +862,16 @@ static void waitForResource(id resource) {
 
 static void completed(void *context);
 static void scheduled(void *context);
-@implementation NBCommandBuffer
+@implementation NBCommandBuffer {
+ NSMutableDictionary *_userDictionary;
+}
 - (instancetype)init {
- if((self=[super init])){_scheduledHandlers=[NSMutableArray array];_completedHandlers=[NSMutableArray array];_surfaces=[NSMutableSet set];_resourceOwners=[NSMutableSet set];_handlers=dispatch_group_create();_schedulingHandlers=dispatch_group_create();}
+ if((self=[super init])){_scheduledHandlers=[NSMutableArray array];_completedHandlers=[NSMutableArray array];_readSurfaces=[NSMutableSet set];_writtenSurfaces=[NSMutableSet set];_resourceOwners=[NSMutableSet set];_handlers=dispatch_group_create();_schedulingHandlers=dispatch_group_create();}
  if(self)createdUs=nowUs();
  return self;
+}
+- (NSMutableDictionary *)userDictionary {
+ @synchronized(self){if(!_userDictionary)_userDictionary=[NSMutableDictionary new];return _userDictionary;}
 }
 - (void)dealloc {nmb_command_buffer_release(_handle);}
 - (id<MTLCommandQueue>)commandQueue {return (id<MTLCommandQueue>)_queue;}
@@ -848,7 +934,11 @@ static void scheduled(void *context);
  auto attachment=[&](MTLRenderPassAttachmentDescriptor *a,NmbPassAttachment &out)->bool {
   if(!a.texture)return true;
   if(![(id)a.texture isKindOfClass:[NBTexture class]])return false;
-  NBTexture *texture=(NBTexture *)a.texture;if(texture.surface)[_surfaces addObject:texture];
+  NBTexture *texture=(NBTexture *)a.texture;
+  if(texture.surface){
+   if(a.loadAction==MTLLoadActionLoad)[_readSurfaces addObject:texture];
+   [_writtenSurfaces addObject:texture];
+  }
   [_resourceOwners addObject:texture];
   out.texture=texture.handle;out.level=a.level;out.slice=a.slice;out.depth_plane=a.depthPlane;out.load=a.loadAction;out.store=a.storeAction;
   return true;
@@ -900,12 +990,12 @@ static void scheduled(void *context);
  // deadlock checks. The queue's completionQueue routes completed handlers only.
  run();
 }
-// After completion (or a refusal): invalidate the CPU's view of imported surfaces, then completed handlers, once.
+// After completion (or a refusal): invalidate the CPU's view of written surfaces only, then completed handlers, once.
 - (void)finish {
- flushSurfaces(_surfaces);
+ if(!self.failedLocally)flushFinishSurfaces(_writtenSurfaces);
  // Actual GPU completion (or a local refusal that never submitted) is the
  // release point. A retained completed command must not pin every old frame.
- [_surfaces removeAllObjects];[_resourceOwners removeAllObjects];
+ [_readSurfaces removeAllObjects];[_writtenSurfaces removeAllObjects];[_resourceOwners removeAllObjects];
  @synchronized(gInFlight){[gInFlight removeObject:self];}
  NSArray *completedHandlers;
  @synchronized(self){
@@ -935,7 +1025,7 @@ static void scheduled(void *context);
  dispatch_group_enter(_schedulingHandlers);
  @synchronized(gInFlight){[gInFlight addObject:self];}
  if(!self.encodeFailure) {
-  flushSurfaces(_surfaces);
+  flushCommitSurfaces(_readSurfaces,_writtenSurfaces);
   // Completion owns this reference; the runtime orders the non-owning scheduled callback before it.
   void *context=(__bridge_retained void *)self;
   if(nmb_command_buffer_on_completed(_handle,completed,context) &&
@@ -1524,7 +1614,7 @@ static char sweetMemoryOwnerKey;
  std::vector<NmbBinaryArchive *> archives;
  if(!pipelineArchives(d.binaryArchives,archives,error)){delete p;return nil;}
  const NmbPipelineOptions creation={(uint64_t)options,archives.data(),archives.size()};
- const uint64_t pipelineBegan=nowUs();const NBCost costBegan=NBCost::now();
+ const uint64_t pipelineBegan=nowUs();const NBCost costBegan=gJournalPath.empty()?NBCost{}:NBCost::now();
  NmbRenderPipeline *handle=nmb_render_pipeline_new_with_options(gDevice,p,&creation);delete p;gTimePipeline.add(pipelineBegan);
  journalRenderPipeline(d,pipelineBegan,handle?nullptr:nmb_last_error(),gJournalPath.empty()?std::string():NBCost::now().since(costBegan));
  if(!handle)return failWith<id<MTLRenderPipelineState>>(error,@"render pipeline",nil);
@@ -1597,7 +1687,7 @@ extern "C" id native_bridge_metal_open(const char *loader,const char *cache,uint
  gMissing=missing;gInFlight=[NSMutableSet set];
  gDevice=nmb_device_open(loader,cache);
  if(!gDevice){NBLOG(@"native-metal: device refused: %s",nmb_last_error());return nil;}
- if(cache){gJournalPath=std::string(cache)+"/pipelines.log";gJournalBegan=nowUs();}
+ if(cache && getenv("SWEET_M2V_JOURNAL")){gJournalPath=std::string(cache)+"/pipelines.log";gJournalBegan=nowUs();}
  char name[128]={};nmb_device_name(gDevice,name,sizeof name);gName=[NSString stringWithUTF8String:name];gRegistryID=registryID;
  // The target families supportsFamily: answers true, with the rows of Apple's tables the device does not meet in them (nmb_device_family_waivers).
  {char waived[4096]={};nmb_device_family_waivers(gDevice,waived,sizeof waived);
@@ -1621,10 +1711,13 @@ extern "C" id native_bridge_metal_open(const char *loader,const char *cache,uint
  // The original registration (_MTLAddDevice) asserts that a plugin's device conforms to Metal's private device protocol as well; the target's own
  // drivers get it from their IOGPU base class. Conformance only answers conformsToProtocol:, the methods are still looked up one by one.
  if(Protocol *spi=objc_getProtocol("MTLDeviceSPI"))class_addProtocol(cls,spi);
- // SweetMetal2: Metal checks textures against its private implementation protocol too, and NSLogs "texture is not a
- // MTLTextureImplementation." on every miss (~600 lines/s from backboardd while scrolling).
+ // SweetMetal2: Metal checks textures and functions against its private implementation protocols too, and NSLogs
+ // conformance warnings on every miss from backboardd while scrolling or building pipelines.
  {Protocol *tp=objc_getProtocol("MTLTextureImplementation");if(tp)class_addProtocol([NBTexture class],tp);
   NBLOG(@"native-metal: MTLTextureImplementation %s",tp?([NBTexture conformsToProtocol:tp]?"adopted":"not adopted"):"missing");}
+ class_addProtocol([NBFunction class],@protocol(MTLFunction));
+ if(Protocol *fspi=objc_getProtocol("MTLFunctionSPI"))class_addProtocol([NBFunction class],fspi);
+ if(Protocol *fimp=objc_getProtocol("MTLFunctionImplementation"))class_addProtocol([NBFunction class],fimp);
  objc_registerClassPair(cls);
  gDeviceObject=[cls new];
  return gDeviceObject;

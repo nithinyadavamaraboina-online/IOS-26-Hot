@@ -5,7 +5,7 @@ Only what the early boot path actually reads (see ios-sweet's NOTES.md); every
 MMIO address comes from the flame (Pixel 4, SM8150) live FDT. The kernel's
 built-in drivers still match the Redmi names (xiaomi,sweet, qcom,kryo470,
 sweet,display), so those stay next to the flame ones.
-Usage:  mkadt.py OUT.adt [--dump] [--qemu] [--highmem]
+Usage:  mkadt.py OUT.adt [--dump] [--qemu] [--highmem] [--rmx1931]
 """
 import hashlib, os, struct, sys
 
@@ -22,6 +22,11 @@ MEM_SIZE = 0x3d000000
 # big, 0xc0000000, so XNU takes 0x1_00000000 up (same size as on the Redmi).
 HIGH_PHYS_BASE = 0x100000000
 HIGH_MEM_SIZE = 0xfcc00000
+# --rmx1931 (8 GB LPDDR4X, DRAM top 0x2_80000000): 5.45 GiB managed XNU RAM + 512 MiB
+# extra WC GPU pool at 0x2_5d000000..0x2_7d000000 (1,456 MiB total WC GPU pool).
+HIGH_MEM_SIZE_RMX1931 = 0x15cc00000
+GPOOL_HI_RMX1931 = (0x25d000000, 0x20000000)
+MIRROR_PA_RMX1931 = 0x27e000000
 # /arm-io children are relative to this; it must not be 0 (serial_init bails)
 SOC_BASE = 0x01000000
 
@@ -80,6 +85,7 @@ cstr = lambda s: s.encode() + b'\0'
 
 
 PANIC_LOG_PA = 0x1fd000000
+PANIC_LOG_PA_RMX1931 = 0x27d000000
 PANIC_LOG_SIZE = 0x80000
 
 
@@ -90,13 +96,26 @@ def node(name, props=(), children=()):
     return n
 
 
-def build(seed=None, qemu=False, highmem=False):
+def build(seed=None, qemu=False, highmem=False, rmx1931=False):
     """qemu=True: same tree, but with QEMU virt's GIC addresses and CNTFRQ (tools/qemu-sweet.py)."""
-    phys_base, mem_size = (HIGH_PHYS_BASE, HIGH_MEM_SIZE) if highmem else (PHYS_BASE, MEM_SIZE)
+    if rmx1931 and highmem:
+        phys_base, mem_size = HIGH_PHYS_BASE, HIGH_MEM_SIZE_RMX1931
+    elif highmem:
+        phys_base, mem_size = HIGH_PHYS_BASE, HIGH_MEM_SIZE
+    else:
+        phys_base, mem_size = PHYS_BASE, MEM_SIZE
+    panic_pa = PANIC_LOG_PA_RMX1931 if (rmx1931 and highmem) else PANIC_LOG_PA
     gicd, gicr, timebase = (QEMU_GICD, QEMU_GICR, QEMU_TIMEBASE) if qemu else (GICD, GICR, TIMEBASE)
     seed = seed if seed is not None else os.urandom(64)
     phandle = iter(range(1, 1000))
     ph = lambda: ('AAPL,phandle', u32(next(phandle)))
+
+    chosen_extra = []
+    if rmx1931 and highmem:
+        chosen_extra = [
+            ('sweet-gpool-hi', u64(*GPOOL_HI_RMX1931)),
+            ('sweet-mirror-pa', u64(MIRROR_PA_RMX1931)),
+        ]
 
     chosen = node('chosen', [
         ph(),
@@ -145,7 +164,7 @@ def build(seed=None, qemu=False, highmem=False):
         # Panic region size (with /pram below): XNU's SavePanicInfo spins forever
         # without one, so panics printed no backtrace.
         ('embedded-panic-log-size', u32(PANIC_LOG_SIZE)),
-    ], [node('memory-map', [ph()]),
+    ] + chosen_extra, [node('memory-map', [ph()]),
         # Local boot policy (kern_csr.c): SIP relaxed like `csrutil disable`
         # (lp-sip0: untrusted kexts, unrestricted FS, task_for_pid, kernel
         # debugger, dtrace, nvram), lp-sip1: unauthenticated (unsealed) root.
@@ -153,29 +172,29 @@ def build(seed=None, qemu=False, highmem=False):
         # with CSR_ALLOW_UNRESTRICTED_FS (vm_unix.c shared region checks).
         node('asmb', [ph(), ('lp-sip0', u64(0x6f)), ('lp-sip1', u32(1))])])
 
-    # SMP: all eight cores in physical-core order (flame: 0-3 Cortex-A55,
-    # 4-6 Cortex-A76, 7 the A76 prime core), one homogeneous cluster. The
-    # kernel defaults to one and uses cpus=N to select an initial prefix.
-    # QEMU retains its original single-CPU tree: its MPIDRs differ.
+    # AMP on SM8150/SM8150-AC: cpu0-3 Cortex-A55 ('E'), cpu4-6 Cortex-A76 + cpu7 Prime ('P').
+    # QEMU retains its original single-CPU CLUSTER_TYPE_SMP tree.
     cpu_nodes = []
     for core in range(1 if qemu else 8):
+        is_p = (not qemu) and (core >= 4)
+        prime_hz = 2956800000 if rmx1931 else 2841600000
         cpu_nodes.append(node(f'cpu{core}', [
             ph(),
             ('device_type', cstr('cpu')),
             ('compatible', cstr('qcom,kryo470') + cstr('qcom,kryo485') + cstr('ARM,v8')),
             ('reg', u32(core << 8)),  # actual MPIDR Aff1:Aff0, NOT logical ID
             ('cpu-id', u32(core)),   # descriptive: XNU assigns IDs by DT order
-            ('cluster-id', u32(0)),  # descriptive; see ml_parse_cpu_topology
-            ('cluster-type', u32(0)),  # homogeneous CLUSTER_TYPE_SMP, not AMP
-            ('die-cluster-id', u32(0)),
+            ('cluster-id', u32(1 if is_p else 0)),
+            ('cluster-type', u32(0) if qemu else cstr('P' if is_p else 'E')),
+            ('die-cluster-id', u32(1 if is_p else 0)),
             ('cluster-core-id', u32(core)),
             ('l2-cache-id', u32(core)),  # per-core L2 nodes in the live FDT
             ('l3-cache-id', u32(0)),     # shared L3
             ('state', cstr('running' if core == 0 else 'stopped')),
             ('timebase-frequency', u32(timebase)),
-            ('clock-frequency', u32(2841600000 if core == 7 else 2419200000 if core >= 4 else 1785600000)),
+            ('clock-frequency', u32(prime_hz if core == 7 else 2419200000 if core >= 4 else 1785600000)),
             ('bus-frequency', u32(100000000)),
-            ('memory-frequency', u32(1866000000)),
+            ('memory-frequency', u32(2133000000 if rmx1931 else 1866000000)),
             ('peripheral-frequency', u32(timebase)),
             ('fixed-frequency', u32(timebase)),
         ]))
@@ -230,8 +249,8 @@ def build(seed=None, qemu=False, highmem=False):
     ])
 
     # iBoot's panic region (pe_init.c check_for_panic_log): RAM above XNU's range
-    # (which ends at 0x1fcc00000) and below the console mirror at 0x1fe000000.
-    pram = node('pram', [ph(), ('reg', struct.pack('<2Q', PANIC_LOG_PA, PANIC_LOG_SIZE))])
+    # and below the console mirror.
+    pram = node('pram', [ph(), ('reg', struct.pack('<2Q', panic_pa, PANIC_LOG_SIZE))])
 
     # bsd/dev/sweet_ufs.c: the UFS host ABL leaves running (absolute physical reg).
     ufs = node('sweet-ufs', [
@@ -290,7 +309,7 @@ def build(seed=None, qemu=False, highmem=False):
 
 
 if __name__ == '__main__':
-    root = build(qemu='--qemu' in sys.argv, highmem='--highmem' in sys.argv)
+    root = build(qemu='--qemu' in sys.argv, highmem='--highmem' in sys.argv, rmx1931='--rmx1931' in sys.argv)
     blob = adt.serialize(root)
     open(sys.argv[1], 'wb').write(blob)
     if '--dump' in sys.argv:

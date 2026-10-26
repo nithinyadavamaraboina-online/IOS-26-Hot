@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 #include "glink.h"
 #include "link.h"
 #include "pmem.h"
@@ -29,6 +30,7 @@ static uint32_t rxoff;
 static qrtr_cb_t qrtr_cb;
 
 int verbose_link = 1;
+volatile unsigned link_activity;
 unsigned link_stats[4];
 void (*link_idle)(void);
 #define LOG(...) do { if (verbose_link) { printf("[%6llu] ", (unsigned long long)link_ms()); printf(__VA_ARGS__); } } while (0)
@@ -225,15 +227,29 @@ static int rx_one(void)
 
 int link_poll(unsigned ms)
 {
+	static unsigned idle_us = 1000;
 	uint64_t end = now_ms() + ms;
 	int n = 0;
 	do {
-		while (rx_one())
+		unsigned before = link_activity;
+		int got = 0;
+		while (rx_one()) {
 			n++;
+			got = 1;
+		}
 		if (link_idle)
 			link_idle();
-		if (ms)
-			delay_ms(1);
+		if (got || link_activity != before)
+			idle_us = 1000;
+		else if (idle_us < 8000)
+			idle_us *= 2;
+		if (ms) {
+			uint64_t now = now_ms();
+			if (now >= end)
+				break;
+			uint64_t rem_us = (end - now) * 1000;
+			usleep((useconds_t)(idle_us < rem_us ? idle_us : rem_us));
+		}
 	} while (now_ms() < end);
 	return n;
 }

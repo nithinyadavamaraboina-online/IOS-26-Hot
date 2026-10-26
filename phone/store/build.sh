@@ -10,14 +10,14 @@ rm -rf out
 mkdir -p out/SweetStore.app
 
 # 1. Root installer daemon (127.0.0.1:29170)
-"$CC" -O2 -Wall -Wno-deprecated-declarations -fobjc-arc \
+"$CC" -O3 -Wall -Wno-deprecated-declarations -fobjc-arc \
 	-framework Foundation -lz \
 	-o out/sweetstored sweetstored.m
 strip -x out/sweetstored
 codesign -f -s - --entitlements sweetstored-ents.plist out/sweetstored
 
 # 2. Native UIKit Store & IPA Installer app
-"$CC" -O2 -Wall -Wno-deprecated-declarations -fobjc-arc \
+"$CC" -O3 -Wall -Wno-deprecated-declarations -fobjc-arc \
 	-framework UIKit -framework QuartzCore -framework Foundation \
 	-framework CoreGraphics -framework UniformTypeIdentifiers \
 	-o out/SweetStore.app/SweetStore SweetStore.m

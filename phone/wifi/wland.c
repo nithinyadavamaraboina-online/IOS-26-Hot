@@ -220,19 +220,22 @@ static int smp2p_create(void)
 	return 0;
 }
 
+static uint64_t smp2p_in_pa, smp2p_slave_va, smp2p_next_ms;
+
 /* Address of the value of the modem's inbound entry NAME (0 = found). */
 static int smp2p_in_entry(const char *name, uint64_t *va)
 {
-	uint64_t pa;
+	uint64_t pa = smp2p_in_pa;
 	uint32_t sz;
-	if (smem_get(SMEM_HOST_MODEM, SMP2P_IN, &pa, &sz))
+	if (!pa && smem_get(SMEM_HOST_MODEM, SMP2P_IN, &pa, &sz))
 		return -1;
+	smp2p_in_pa = pa;
 	uint32_t n = rd32(pa + 12) >> 16;
 	for (uint32_t i = 0; i < n && i < 16; i++) {
 		uint64_t e = pa + 20 + 20ull * i;
 		char nm[17];
-		for (int k = 0; k < 16; k++)
-			nm[k] = (char)(rd32(e + (k & ~3)) >> (8 * (k & 3)));
+		if (pm_rd(e, nm, 16))
+			return -1;
 		nm[16] = 0;
 		if (!strcmp(nm, name)) {
 			*va = e + 16;
@@ -245,8 +248,14 @@ static int smp2p_in_entry(const char *name, uint64_t *va)
 static int smp2p_in_value(const char *name, uint32_t *v)
 {
 	uint64_t va;
+	if (!strcmp(name, "slave-kernel") && smp2p_slave_va) {
+		*v = rd32(smp2p_slave_va);
+		return 0;
+	}
 	if (smp2p_in_entry(name, &va))
 		return -1;
+	if (!strcmp(name, "slave-kernel"))
+		smp2p_slave_va = va;
 	*v = rd32(va);
 	return 0;
 }
@@ -260,12 +269,14 @@ static int smp2p_in_value(const char *name, uint32_t *v)
 static uint32_t modem_state = 0xffffffff;
 static void smp2p_service(void)
 {
-	uint64_t ip;
+	uint64_t now = link_ms();
+	if (modem_state != 0xffffffff && (modem_state & 2) && !(modem_state & 1) && now < smp2p_next_ms)
+		return;
 	uint32_t sz, v;
 	if (!smp2p_out_pa && smem_get(SMEM_HOST_MODEM, SMP2P_OUT, &smp2p_out_pa, &sz))
 		return;
-	if (smem_get(SMEM_HOST_MODEM, SMP2P_IN, &ip, &sz) == 0) {
-		uint32_t want = (rd32(ip + 16) & 1) ? 2 : 0;
+	if (smp2p_in_pa || smem_get(SMEM_HOST_MODEM, SMP2P_IN, &smp2p_in_pa, &sz) == 0) {
+		uint32_t want = (rd32(smp2p_in_pa + 16) & 1) ? 2 : 0;
 		if ((rd32(smp2p_out_pa + 16) & 2) != want) {
 			wr32(smp2p_out_pa + 16, (rd32(smp2p_out_pa + 16) & ~2u) | want);
 			kick(IPC_MODEM_SMP2P);
@@ -273,10 +284,12 @@ static void smp2p_service(void)
 		}
 	}
 	if (smp2p_in_value("slave-kernel", &v) == 0 && v != modem_state) {
-		printf("[%6llu] smp2p: modem state %x%s%s%s%s\n", (unsigned long long)link_ms(), v, v & 1 ? " ERR-FATAL" : "", v & 2 ? " ready" : "",
+		printf("[%6llu] smp2p: modem state %x%s%s%s%s\n", (unsigned long long)now, v, v & 1 ? " ERR-FATAL" : "", v & 2 ? " ready" : "",
 		       v & 4 ? " handover" : "", v & 8 ? " stop-ack" : "");
 		modem_state = v;
 	}
+	if (modem_state != 0xffffffff && (modem_state & 2) && !(modem_state & 1))
+		smp2p_next_ms = now + 250;
 }
 
 static int smp2p_init(void)

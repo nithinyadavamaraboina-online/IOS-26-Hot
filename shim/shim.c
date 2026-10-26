@@ -236,25 +236,35 @@ static void log_ram(void)
 }
 
 #ifdef SHIM_READONLY
-#define XNU_MIRROR_PA	0x1fe000000UL
+#define XNU_MIRROR_PA_8G	0x27e000000UL
+#define XNU_MIRROR_PA_6G	0x1fe000000UL
 #define XNU_RING_SIZE	(4u << 20)
 
 static void ramlog_rescue_readonly(void)
 {
-	volatile const char *mh = (volatile const char *)XNU_MIRROR_PA;
+	static const uint64_t mirrors[2] = { XNU_MIRROR_PA_8G, XNU_MIRROR_PA_6G };
 	static const char want[8] = { 'S','W','E','E','T','M','I','R' };
-	for (int i = 0; i < 8; i++)
-		if (mh[i] != want[i])
-			return;
-	if (*(volatile const uint32_t *)(XNU_MIRROR_PA + 16) != XNU_RING_SIZE)
+	uint64_t mpa = 0;
+	for (int k = 0; k < 2; k++) {
+		volatile const char *mh = (volatile const char *)mirrors[k];
+		int ok = 1;
+		for (int i = 0; i < 8; i++)
+			if (mh[i] != want[i])
+				ok = 0;
+		if (ok && *(volatile const uint32_t *)(mirrors[k] + 16) == XNU_RING_SIZE) {
+			mpa = mirrors[k];
+			break;
+		}
+	}
+	if (!mpa)
 		return;
-	uint64_t total = *(volatile const uint64_t *)(XNU_MIRROR_PA + 8);
-	*(volatile char *)XNU_MIRROR_PA = 0;
+	uint64_t total = *(volatile const uint64_t *)(mpa + 8);
+	*(volatile char *)mpa = 0;
 	uint32_t max_copy = LOG_SIZE > log_len + 8192 ? (LOG_SIZE - log_len - 8192) : 0;
 	uint32_t n = total < max_copy ? (uint32_t)total : max_copy;
 	uint64_t start = total - n;
 	log_printf("\n=== RESCUED XNU CONSOLE (%u of %lu bytes from SWEETMIR) ===\n", n, total);
-	volatile const char *ring = (volatile const char *)(XNU_MIRROR_PA + 0x1000UL);
+	volatile const char *ring = (volatile const char *)(mpa + 0x1000UL);
 	for (uint32_t i = 0; i < n && log_len + 1 < LOG_SIZE; i++)
 		log_buf[log_len++] = ring[(start + i) % XNU_RING_SIZE];
 	log_printf("\n=== END RESCUED XNU CONSOLE ===\n");

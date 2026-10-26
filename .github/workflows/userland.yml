@@ -6,6 +6,7 @@ on:
     branches: [main, master]
     paths:
       - "phone/**"
+      - "shim/**"
       - "tools/build-turnip-ios.sh"
       - "tools/build-m2v-bridge.sh"
       - ".github/workflows/userland.yml"
@@ -47,8 +48,9 @@ jobs:
           echo "DEVELOPER_DIR=$DEV_DIR" >> "$GITHUB_ENV"
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-path
+          brew install llvm lld
           if [ "${{ steps.scope.outputs.full }}" = "true" ]; then
-            brew install llvm bison flex ninja gnu-sed pkg-config autoconf automake glslang spirv-tools
+            brew install bison flex ninja gnu-sed pkg-config autoconf automake glslang spirv-tools
             if [ ! -x /opt/homebrew/opt/llvm/bin/llvm-as ]; then
               sudo mkdir -p /opt/homebrew/opt/llvm/bin
               sudo ln -sf "$(brew --prefix llvm)/bin/llvm-as" /opt/homebrew/opt/llvm/bin/llvm-as
@@ -63,12 +65,12 @@ jobs:
                    xnu/patches/0107-*.patch xnu/patches/0108-*.patch xnu/patches/0109-*.patch \
                    xnu/patches/0111-*.patch xnu/patches/0112-*.patch xnu/patches/0115-*.patch \
                    xnu/patches/0118-*.patch xnu/patches/0125-*.patch xnu/patches/0127-*.patch \
-                   xnu/patches/0128-*.patch; do
+                   xnu/patches/0128-*.patch xnu/patches/0132-*.patch; do
             git -C work/dxb/xnu apply --include='bsd/dev/sweet_a6xx*' "$PWD/$p"
           done
           ls -la work/dxb/xnu/bsd/dev/
 
-      - name: Build wland, gpu/pmem, media/audio, store, and phone/tools
+      - name: Build wland, gpu/pmem, media/audio, store, phone/tools, and shim Image
         run: |
           sh phone/wifi/build.sh
           sh phone/gpu/build.sh
@@ -76,6 +78,25 @@ jobs:
           sh phone/audio/build.sh
           sh phone/store/build.sh
           bash phone/tools/build.sh
+          (
+            set -euo pipefail
+            export PATH="$(brew --prefix llvm)/bin:$(brew --prefix lld)/bin:$PATH"
+            cd shim && mkdir -p out
+            CFLAGS="-O2 -ffreestanding -nostdlib -fno-builtin -fno-pic -fno-pie -mgeneral-regs-only -mstrict-align -fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra"
+            SRCS="start.S shim.c console.c log.c util.c mmu.c fdt.c loader.c ufs.c spmi.c sde.c showlog.c diag.c disptest.c gpuprobe.c gpufw.S smmuprobe.c ramlog.c"
+            objs=""
+            for f in $SRCS; do
+              clang --target=aarch64-none-elf $CFLAGS -c "$f" -o "out/${f%.*}.o"
+              objs="$objs out/${f%.*}.o"
+            done
+            abs=$(llvm-readelf -r $(echo "$objs" | sed 's| out/start.o||') | grep -c R_AARCH64_ABS64 || true)
+            [ "$abs" = 0 ] || { echo "error: $abs absolute relocations in shim" >&2; exit 1; }
+            ld.lld -static -nostdlib -T shim.ld --build-id=none -N $objs -o out/shim.elf
+            llvm-objcopy -O binary out/shim.elf out/Image
+            end_hex=$(llvm-nm out/shim.elf | awk '$3=="_end"{print $1}')
+            python3 -c "f=open('out/Image','r+b'); f.truncate(int('$end_hex',16)); f.close()"
+            ls -lh out/Image
+          )
 
       - name: Build Mesa Turnip (libvulkan_freedreno.dylib) for iOS 16 arm64
         if: steps.scope.outputs.full == 'true'
@@ -204,6 +225,7 @@ jobs:
           cp phone/gpu/out/gpu phone/gpu/out/pmem dist-userland/bin/
           cp phone/tools/out/* dist-userland/bin/
           cp work/userland/stage/* dist-userland/bin/ 2>/dev/null || true
+          cp shim/out/Image dist-userland/shim-Image
           tar czf ios-userland.tar.gz -C dist-userland .
           ls -lh ios-userland.tar.gz dist-userland/bin dist-userland/Extensions dist-userland/lib dist-userland/HAL dist-userland/Applications
 

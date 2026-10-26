@@ -20,6 +20,7 @@ struct qrtr_hdr {
 typedef void (*qrtr_cb_t)(const struct qrtr_hdr *h, const uint8_t *data, uint32_t len);
 
 extern int verbose_link;
+extern volatile unsigned link_activity;
 extern unsigned link_stats[4];	/* remote RX_DONE, RX_DONE_W_REUSE, our intent requests */
 extern void (*link_idle)(void);	/* called every poll round */
 uint64_t link_ms(void);		/* since the first call */

@@ -8,9 +8,9 @@ index de3df1e..38dfa34 100644
  
 -/// The size of a pooled block, at most the device's `maxMemoryAllocationSize`.
 -pub(super) const BLOCK_BYTES: u64 = 64 << 20;
-+/// The size of a pooled block, at most the device's `maxMemoryAllocationSize`. SweetMetal2: 8 MB, not 64: the A640's
-+/// kernel backs every block with RAM at once, and each process paid 64 MB per memory class it touched.
-+pub(super) const BLOCK_BYTES: u64 = 8 << 20;
++/// The size of a pooled block, at most the device's `maxMemoryAllocationSize`. SweetMetal2: 16 MB so fullscreen
++/// 1125x2436 (~11 MB) render targets sub-allocate from pooled blocks instead of per-frame dedicated BO allocations.
++pub(super) const BLOCK_BYTES: u64 = 16 << 20;
  
  /// What memory a resource needs.
  #[derive(Clone, Copy, Debug, PartialEq, Eq)]

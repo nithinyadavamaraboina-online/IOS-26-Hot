@@ -45,6 +45,17 @@ int glink_init(void)
 static uint32_t tx_write(uint32_t head, const uint8_t *data, size_t n)
 {
 	/* the FIFO is device memory here: whole words only (n is padded by the caller) */
+	if ((head & 3u) == 0 && (n & 3u) == 0 && (tx_len & 3u) == 0) {
+		size_t first = n < (size_t)(tx_len - head) ? n : (size_t)(tx_len - head);
+		if (first)
+			pm_wr(tx_fifo + head, data, first);
+		if (n > first)
+			pm_wr(tx_fifo, data + first, n - first);
+		head += (uint32_t)n;
+		while (head >= tx_len)
+			head -= tx_len;
+		return head;
+	}
 	for (size_t i = 0; i < n; i += 4) {
 		uint32_t w;
 		memcpy(&w, data + i, 4);
@@ -67,7 +78,10 @@ int glink_send(uint16_t cmd, uint16_t p1, uint32_t p2, const void *data, size_t 
 	memcpy(buf + 4, &p2, 4);
 	if (len)
 		memcpy(buf + 8, data, len);
-	uint32_t head = rd32(TX_HEAD), tail = rd32(TX_TAIL);
+	uint32_t d[2];
+	if (pm_rd(TX_TAIL, d, sizeof(d)))
+		return -1;
+	uint32_t tail = d[0], head = d[1];
 	uint32_t avail = tail <= head ? tx_len - head + tail : tail - head;
 	if (avail < padded + 16)
 		return -1;	/* full: the caller polls and retries */
@@ -80,15 +94,30 @@ int glink_send(uint16_t cmd, uint16_t p1, uint32_t p2, const void *data, size_t 
 
 size_t glink_rx_avail(void)
 {
-	uint32_t head = rd32(RX_HEAD), tail = rd32(RX_TAIL);
+	uint32_t d[2];
+	if (pm_rd(RX_TAIL, d, sizeof(d)))
+		return 0;
+	uint32_t tail = d[0], head = d[1];
 	return head < tail ? rx_len - tail + head : head - tail;
 }
 
 void glink_rx_peek(void *buf, size_t off, size_t len)
 {
-	uint32_t t = rd32(RX_TAIL) + (uint32_t)off;
-	if (t >= rx_len)
-		t -= rx_len;
+	if (!len || !rx_len)
+		return;
+	uint32_t t = (rd32(RX_TAIL) + (uint32_t)off) % rx_len;
+	if ((rx_len & 3u) == 0 && len <= 16384) {
+		static uint8_t rx_tmp[16384 + 8];
+		uint32_t lead = t & 3u, t0 = t & ~3u;
+		size_t aligned = (lead + len + 3u) & ~(size_t)3u;
+		size_t first = aligned < (size_t)(rx_len - t0) ? aligned : (size_t)(rx_len - t0);
+		if (first)
+			pm_rd(rx_fifo + t0, rx_tmp, first);
+		if (aligned > first)
+			pm_rd(rx_fifo, rx_tmp + first, aligned - first);
+		memcpy(buf, rx_tmp + lead, len);
+		return;
+	}
 	uint8_t *b = buf;
 	for (size_t i = 0; i < len; i++) {
 		uint32_t w = rd32(rx_fifo + (t & ~3u));

@@ -41,7 +41,7 @@ RAMLOG = CMDLINE + BOOT_LINE_LENGTH - 16	# 0x298: ring_va, total_va
 
 
 def kernel_symbols(path, *names):
-    """Addresses of the named symbols (0 if absent), from nm / llvm-nm."""
+    """Addresses of the named symbols (0 if absent), from nm / llvm-nm or LC_SYMTAB."""
     import shutil, subprocess
     found = dict.fromkeys(names, 0)
     out = ''
@@ -52,10 +52,32 @@ def kernel_symbols(path, *names):
         if res.returncode == 0 and res.stdout:
             out = res.stdout
             break
-    for line in out.splitlines():
-        parts = line.split()
-        if len(parts) == 3 and parts[2] in found:
-            found[parts[2]] = int(parts[0], 16)
+    if out:
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) == 3 and parts[2] in found:
+                found[parts[2]] = int(parts[0], 16)
+        return [found[n] for n in names]
+    raw = open(path, 'rb').read()
+    magic, _, _, _, ncmds = struct.unpack_from('<5I', raw, 0)
+    if magic == 0xfeedfacf:
+        off = 32
+        want = {n.encode(): n for n in names}
+        for _ in range(ncmds):
+            cmd, sz = struct.unpack_from('<II', raw, off)
+            if cmd == 0x2:  # LC_SYMTAB
+                symoff, nsyms, stroff, strsize = struct.unpack_from('<4I', raw, off + 8)
+                strs = memoryview(raw)[stroff:stroff + strsize]
+                for i in range(nsyms):
+                    strx, ntype, _, _, nval = struct.unpack_from('<IBBHQ', raw, symoff + 16 * i)
+                    if (ntype & 0xe0) == 0 and (ntype & 0x0e) != 0 and strx < strsize:
+                        end = raw.find(b'\0', stroff + strx, stroff + strsize)
+                        if end > stroff + strx:
+                            sym = bytes(strs[strx:end - stroff])
+                            if sym in want:
+                                found[want[sym]] = nval
+                break
+            off += sz
     return [found[n] for n in names]
 
 

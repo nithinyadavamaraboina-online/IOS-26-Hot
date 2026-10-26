@@ -114,6 +114,7 @@ static void bridge_status(uint16_t type, int32_t status)
 
 static void bridge_rx(const uint8_t *frame, uint32_t len)
 {
+	link_activity++;
 	if (len <= FW_FRAME_MAX)
 		bridge_send(FW_RX, frame, len);
 }
@@ -228,6 +229,7 @@ void bridge_poll(void)
 		ssize_t r = read(bfd, m, sizeof(m));
 		if (r < (ssize_t)sizeof(struct fw_hdr))
 			break;
+		link_activity++;
 		struct fw_hdr h;
 		memcpy(&h, m, sizeof(h));
 		const uint8_t *p = m + sizeof(h);

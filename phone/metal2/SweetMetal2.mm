@@ -164,8 +164,6 @@ static bool listed(void)
 		CFPreferencesSetAppValue(CFSTR("CAEnableFramebufferCompression"), kCFBooleanFalse, kCFPreferencesCurrentApplication);
 		CFPreferencesSetAppValue(CFSTR("CAEnableIOSurfaceCompression"), kCFBooleanFalse, kCFPreferencesCurrentApplication);
 		CFPreferencesSetAppValue(CFSTR("CAEnableDeepFramebuffer"), kCFBooleanFalse, kCFPreferencesCurrentApplication);
-		/* the runtime's VkPipeline makings count into the telemetry (V row) */
-		setenv("METAL2VULKAN_LOG_PIPELINES", "1", 0);
 		/* debugging: KEY=VALUE lines of /var/local/mtl2-env into this process's environment */
 		if (FILE *ef = fopen("/var/local/mtl2-env", "r")) {
 			char line[256];

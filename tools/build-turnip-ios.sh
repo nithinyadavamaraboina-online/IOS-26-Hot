@@ -20,7 +20,8 @@ if [ "$target" = ios ]; then
 	out=$T/build-ios
 	sdk=$(xcrun --sdk iphoneos --show-sdk-path)
 	cross=$T/ios16.cross
-	flags="'-target', 'arm64-apple-ios16.0', '-isysroot', '$sdk', '-fstack-protector-strong'"
+	flags="'-target', 'arm64-apple-ios16.0', '-isysroot', '$sdk', '-O3', '-mcpu=cortex-a76', '-fno-stack-protector'"
+	link_flags="'-target', 'arm64-apple-ios16.0', '-isysroot', '$sdk'"
 	cat > "$cross" <<EOF
 [binaries]
 c = '$(xcrun --sdk iphoneos --find clang)'
@@ -40,9 +41,9 @@ needs_exe_wrapper = true
 c_args = [$flags]
 cpp_args = [$flags]
 objc_args = [$flags]
-c_link_args = [$flags]
-cpp_link_args = [$flags]
-objc_link_args = [$flags]
+c_link_args = [$link_flags]
+cpp_link_args = [$link_flags]
+objc_link_args = [$link_flags]
 EOF
 	cross_arg="--cross-file $cross"
 	export CC=$(xcrun --sdk iphoneos --find clang) CXX=$(xcrun --sdk iphoneos --find clang++)

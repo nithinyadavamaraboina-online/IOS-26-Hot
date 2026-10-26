@@ -13,7 +13,8 @@
 #include "ufs.h"
 #include "util.h"
 
-#define MAILBOX_PA	0x1ffe00000UL	/* top of RAM, above XNU's range; kept across ABL (probe: 0x1fff00000 held TWRP data) */
+#define MAILBOX_PA	0x27fe00000UL	/* 8 GB RMX1931 top of RAM, above XNU + gpool-hi + mirror */
+#define MAILBOX_PA_6G	0x1ffe00000UL
 #define RING_SIZE	(4u << 20)
 #define RESCUE_DATA	((UFS_RESCUE_BLOCKS - 1) * 4096u)
 
@@ -45,28 +46,35 @@ void ramlog_arm(uint64_t ring_pa, uint64_t total_pa)
 	log_printf("ramlog: armed, ring %lx total %lx\n", ring_pa, total_pa);
 }
 
-#define MIRROR_PA	0x1fe000000UL	/* XNU's uncached ring mirror (sweet_ufs.c) */
+#define MIRROR_PA_8G	0x27e000000UL	/* XNU's uncached ring mirror on 8 GB RMX1931 */
+#define MIRROR_PA_6G	0x1fe000000UL	/* 6 GB layout fallback */
 
 static int rescue_from(uint64_t ring, uint64_t total, const char *what);
 
 void ramlog_rescue(void)
 {
-	volatile char *mh = (volatile char *)MIRROR_PA;
-	if (magic_ok(mh, "SWEETMIR") && *(volatile uint32_t *)(MIRROR_PA + 16) == RING_SIZE) {
-		uint64_t total = *(volatile uint64_t *)(MIRROR_PA + 8);
-		mh[0] = 0;
-		rescue_from(MIRROR_PA + 0x1000, total, "uncached mirror");
-		return;
+	static const uint64_t mirrors[2] = { MIRROR_PA_8G, MIRROR_PA_6G };
+	for (int k = 0; k < 2; k++) {
+		uint64_t mpa = mirrors[k];
+		volatile char *mh = (volatile char *)mpa;
+		if (magic_ok(mh, "SWEETMIR") && *(volatile uint32_t *)(mpa + 16) == RING_SIZE) {
+			uint64_t total = *(volatile uint64_t *)(mpa + 8);
+			mh[0] = 0;
+			rescue_from(mpa + 0x1000, total, "uncached mirror");
+			return;
+		}
 	}
 	volatile struct mailbox *mb = (volatile struct mailbox *)MAILBOX_PA;
+	if (!magic_ok(mb->magic, "SWEETRAM"))
+		mb = (volatile struct mailbox *)MAILBOX_PA_6G;
 	if (!magic_ok(mb->magic, "SWEETRAM")) {
 		log_printf("ramlog: no mailbox\n");
 		return;
 	}
 	uint64_t ring = mb->ring_pa, totp = mb->total_pa;
 	mb->magic[0] = 0;	/* one rescue per kernel run */
-	if (mb->ring_size != RING_SIZE || ring < 0x100000000UL || ring >= 0x200000000UL ||
-	    totp < 0x100000000UL || totp >= 0x200000000UL || (ring & 7) || (totp & 7)) {
+	if (mb->ring_size != RING_SIZE || ring < 0x100000000UL || ring >= 0x280000000UL ||
+	    totp < 0x100000000UL || totp >= 0x280000000UL || (ring & 7) || (totp & 7)) {
 		log_printf("ramlog: bad mailbox ring %lx total %lx\n", ring, totp);
 		return;
 	}

@@ -1,0 +1,2505 @@
+diff --git a/bsd/dev/redwood_apple80211.c b/bsd/dev/redwood_apple80211.c
+index 5d744a9..bd8fcab 100644
+--- a/bsd/dev/redwood_apple80211.c
++++ b/bsd/dev/redwood_apple80211.c
+@@ -34,6 +34,7 @@
+ #include <kern/kalloc.h>
+ #include <kern/locks.h>
+ #include <libkern/libkern.h>
++#include <pexpert/pexpert.h>
+ #include <sys/errno.h>
+ #include <sys/kern_event.h>
+ #include <sys/kernel.h>
+@@ -714,6 +715,7 @@ errno_t
+ redwood_apple80211_ioctl(u_long command, void *data)
+ {
+ 	static unsigned said;
++	static int a80211_log = -1;
+ 	struct apple80211req *request = data;
+ 	char who[32] = "?", what[200] = "";
+ 	bool is_set = command == SIOCSA80211;
+@@ -725,8 +727,12 @@ redwood_apple80211_ioctl(u_long command, void *data)
+ 	proc_selfname(who, sizeof(who));
+ 	error = is_set ? set(request, what, sizeof(what)) : get(request);
+ 	note(request, is_set, error);
+-	/* (a request that is repeated for ever is said a few hundred times) */
+-	if (said < 800) {
++	if (a80211_log < 0) {
++		int v = 0;
++		PE_parse_boot_argn("sweet80211log", &v, sizeof(v));
++		a80211_log = v ? 1 : 0;
++	}
++	if (a80211_log ? (said < 800) : (said < 24)) {
+ 		said++;
+ 		printf("apple80211: %s %s %d (%s), value %d, %u bytes%s: %s", who, is_set ? "sets" : "gets", request->req_type,
+ 		    type_name(request->req_type), request->req_val, request->req_len, what, error == 0 ? "answered\n" : error ==
+diff --git a/bsd/dev/rmx1931_touch.c b/bsd/dev/rmx1931_touch.c
+index 89481fa..d402785 100644
+--- a/bsd/dev/rmx1931_touch.c
++++ b/bsd/dev/rmx1931_touch.c
+@@ -28,12 +28,16 @@
+ #include <kern/thread.h>
+ #include <kern/sched_prim.h>
+ #include <machine/machine_routines.h>
++#include <mach/mach_time.h>
++#include <machine/atomic.h>
+ #include <pexpert/pexpert.h>
++#include <pexpert/arm64/board_config.h>
+ 
+ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ extern kern_return_t thread_terminate(thread_t);
+ extern int sweet_rpmh_vreg_enable(const char *res, unsigned mv);
+ extern void sweet_hid_touch(int finger, int down, int x, int y);
++extern void sweet_hid_touch_frame(uint64_t scan_ts, uint32_t active_mask, const int *xs, const int *ys);
+ void rmx1931_touch_init(void);
+ 
+ /* QUPv3 wrapper 2 SE0 (/soc/i2c@0xc80000), GCC, and TLMM SOUTH tile */
+@@ -44,12 +48,15 @@ void rmx1931_touch_init(void);
+ #define RMX_GCC_BITS    0x1fu           /* wrap2 core, s_ahb, m_ahb, core_2x, s0 */
+ #define RMX_RCG         0x1e148u        /* gcc_qupv3_wrap2_s0_clk_src */
+ 
+-#define RMX_GPIO_CFG(n) ((uint32_t)(n) * 0x1000u)
+-#define RMX_GPIO_IO(n)  (RMX_GPIO_CFG(n) + 4u)
++#define RMX_GPIO_CFG(n)         ((uint32_t)(n) * 0x1000u)
++#define RMX_GPIO_IO(n)          (RMX_GPIO_CFG(n) + 4u)
++#define RMX_GPIO_INTR_CFG(n)    (RMX_GPIO_CFG(n) + 8u)
++#define RMX_GPIO_INTR_STATUS(n) (RMX_GPIO_CFG(n) + 12u)
+ #define RMX_PIN_RESET   54u             /* active-low reset */
+ #define RMX_PIN_SDA     55u             /* qup17 function 1 */
+ #define RMX_PIN_SCL     56u             /* qup17 function 1 */
+ #define RMX_PIN_IRQ     122u            /* active-low ATTN */
++#define RMX_TLMM_INTID  240u            /* SM8150 TLMM summary IRQ (GIC SPI 208) */
+ 
+ /* SPMI Arbiter v5 for PM8150L (SID 4) GPIO5 (0xc400, PPID 0x4c4 = enable1v8_gpio) */
+ #define RMX_SPMI_CORE   0x0c440000u
+@@ -111,7 +118,9 @@ static struct {
+ 	vm_offset_t se, gcc, gpio;
+ 	vm_offset_t sp_core, sp_cnfg, sp_obs, sp_ch;
+ 	uint16_t sp_apid;
+-	bool started, dead, bitbang;
++	bool started, dead, bitbang, use_irq;
++	volatile bool irq_armed;
++	unsigned irq_spurious;
+ 	int log, i2c_100k, force_gpio;
+ 	uint32_t irq_status, irq_last, active;
+ 	unsigned sent, got;
+@@ -524,10 +533,20 @@ rmx_msg(const uint8_t *tx, unsigned nt, uint8_t *rx, unsigned nr, bool stretch)
+ 
+ /* ---- Open-drain TLMM GPIO I2C fallback (GPIO55=SDA, GPIO56=SCL) ---- */
+ 
++static inline void
++rmx_xo_ticks(uint64_t ticks)
++{
++	uint64_t t0 = __builtin_arm_rsr64("CNTPCT_EL0");
++	while ((__builtin_arm_rsr64("CNTPCT_EL0") - t0) < ticks) {
++		__builtin_arm_isb(ISB_SY);
++	}
++}
++
++/* 12 XO ticks @ 19.2 MHz = 625 ns half-period (~400 kHz I2C; 48 ticks = ~100 kHz). */
+ static inline void
+ rmx_bb_delay(void)
+ {
+-	delay(rt.i2c_100k ? 3 : 1);
++	rmx_xo_ticks(rt.i2c_100k ? 48ULL : 12ULL);
+ }
+ 
+ static inline void
+@@ -562,7 +581,7 @@ rmx_scl_hi(void)
+ 		if (rmx_rd(rt.gpio, RMX_GPIO_IO(RMX_PIN_SCL)) & 1u) {
+ 			return true;
+ 		}
+-		delay(1);
++		rmx_xo_ticks(12ULL);
+ 	}
+ 	return false;
+ }
+@@ -879,25 +898,46 @@ rmx_rmi_init(void)
+ 	return true;
+ }
+ 
++static void
++rmx_tlmm_irq(void *arg __unused)
++{
++	if (!rt.gpio) {
++		return;
++	}
++	if (rmx_rd(rt.gpio, RMX_GPIO_INTR_STATUS(RMX_PIN_IRQ)) & 1u) {
++		/* IRQF_ONESHOT: mask active-low GPIO 122 until ATTN is cleared in rmx_thread. */
++		rmx_wr(rt.gpio, RMX_GPIO_INTR_CFG(RMX_PIN_IRQ), 0x90u);
++		rmx_wr(rt.gpio, RMX_GPIO_INTR_STATUS(RMX_PIN_IRQ), 0u);
++		rt.irq_armed = false;
++		rt.irq_spurious = 0;
++		thread_wakeup((event_t)&rmx_sleep_chan);
++	} else if (++rt.irq_spurious > 8u) {
++		/* Another TLMM pin left unmasked by ABL: fall back to ATTN pin polling cleanly. */
++		rt.use_irq = false;
++		sweet_gic_mask_spi(RMX_TLMM_INTID);
++	}
++}
++
+ static void
+ rmx_release_all(void)
+ {
+-	for (unsigned id = 0; id < RMX_MAX_FINGERS; ++id) {
+-		if (rt.active & (1u << id)) {
+-			sweet_hid_touch((int)id, 0, rt.x[id], rt.y[id]);
+-		}
++	if (rt.active) {
++		sweet_hid_touch_frame(mach_absolute_time(), 0u, rt.x, rt.y);
++		rt.active = 0;
+ 	}
+-	rt.active = 0;
+ }
+ 
+ static int
+ rmx_poll_once(unsigned *logged_events)
+ {
++	uint64_t scan_ts = mach_absolute_time();
++	/* Reading F01_RMI_DATA01 is mandatory: it de-asserts S3706A's active-low ATTN pin. */
+ 	uint8_t f01[2] = {0};
+ 	int err = rmx_rmi_read(rt.f01.data_base, f01, 2u);
+ 	if (err) {
+ 		return err;
+ 	}
++	rt.irq_status = f01[1];
+ 	if ((f01[0] & 0x0fu) == 1u) {
+ 		/* Unexpected IC reset: restore Configured + interrupt mask. */
+ 		(void)rmx_f01_configure();
+@@ -911,11 +951,12 @@ rmx_poll_once(unsigned *logged_events)
+ 	uint32_t obj_att = (((uint32_t)att[1] << 8) | att[0]) & 0x03ffu;
+ 	if (obj_att == 0) {
+ 		if (rt.active) {
+-			if (rt.log || *logged_events < 32u) {
++			if (rt.log || *logged_events < 16u) {
+ 				(*logged_events)++;
+ 				printf("RMX TOUCH: lift all (was=%#x)\n", rt.active);
+ 			}
+-			rmx_release_all();
++			sweet_hid_touch_frame(scan_ts, 0u, rt.x, rt.y);
++			rt.active = 0;
+ 		}
+ 		return 0;
+ 	}
+@@ -947,21 +988,20 @@ rmx_poll_once(unsigned *logged_events)
+ 		}
+ 		if (down) {
+ 			new_active |= (1u << id);
+-			if (rt.log || (!(rt.active & (1u << id)) && *logged_events < 32u)) {
++			if (rt.log || (!(rt.active & (1u << id)) && *logged_events < 16u)) {
+ 				(*logged_events)++;
+ 				printf("RMX TOUCH: slot=%u down x=%d y=%d\n", id, x, y);
+ 			}
+ 			rt.x[id] = x;
+ 			rt.y[id] = y;
+-			sweet_hid_touch((int)id, 1, x, y);
+ 		} else if (rt.active & (1u << id)) {
+-			if (rt.log || *logged_events < 32u) {
++			if (rt.log || *logged_events < 16u) {
+ 				(*logged_events)++;
+ 				printf("RMX TOUCH: slot=%u up x=%d y=%d\n", id, rt.x[id], rt.y[id]);
+ 			}
+-			sweet_hid_touch((int)id, 0, rt.x[id], rt.y[id]);
+ 		}
+ 	}
++	sweet_hid_touch_frame(scan_ts, new_active, rt.x, rt.y);
+ 	rt.active = new_active;
+ 	return 0;
+ }
+@@ -1025,14 +1065,19 @@ rmx_thread(void *arg, wait_result_t result)
+ 	if (!rmx_rmi_init()) {
+ 		goto out;
+ 	}
+-	printf("RMX TOUCH: Synaptics S3706 ready (%ux%u, 10 fingers, poll=4ms/8ms)\n",
+-	    RMX_PANEL_W, RMX_PANEL_H);
++	rt.use_irq = true;
++	rmx_wr(rt.gpio, RMX_GPIO_INTR_CFG(RMX_PIN_IRQ), 0x90u);
++	rmx_wr(rt.gpio, RMX_GPIO_INTR_STATUS(RMX_PIN_IRQ), 0u);
++	sweet_gic_register_spi(RMX_TLMM_INTID, 0, rmx_tlmm_irq, NULL);
++	printf("RMX TOUCH: Synaptics S3706 ready (%ux%u, 10 fingers, 400kHz + TLMM IRQ %u)\n",
++	    RMX_PANEL_W, RMX_PANEL_H, RMX_TLMM_INTID);
+ 
+ 	unsigned errors = 0, logged_events = 0, ticks = 0;
+ 	while (!rt.dead) {
+ 		bool irq_low = (rmx_rd(rt.gpio, RMX_GPIO_IO(RMX_PIN_IRQ)) & 1u) == 0;
+-		bool periodic = (++ticks % 125u) == 0;
+-		if (irq_low || rt.active || periodic) {
++		++ticks;
++		bool safety = rt.active ? ((ticks & 15u) == 0) : ((ticks % 125u) == 0);
++		if (irq_low || safety) {
+ 			err = rmx_poll_once(&logged_events);
+ 			if (err) {
+ 				if ((errors++ % 100u) == 0) {
+@@ -1044,8 +1089,17 @@ rmx_thread(void *arg, wait_result_t result)
+ 			} else {
+ 				errors = 0;
+ 			}
++			irq_low = (rmx_rd(rt.gpio, RMX_GPIO_IO(RMX_PIN_IRQ)) & 1u) == 0;
++		}
++		if (irq_low) {
++			continue;
++		}
++		if (rt.use_irq && !rt.irq_armed) {
++			rmx_wr(rt.gpio, RMX_GPIO_INTR_STATUS(RMX_PIN_IRQ), 0u);
++			rt.irq_armed = true;
++			rmx_wr(rt.gpio, RMX_GPIO_INTR_CFG(RMX_PIN_IRQ), 0x91u);
+ 		}
+-		rmx_wait((irq_low || rt.active) ? 4 : 8);
++		rmx_wait(rt.active ? 4 : (rt.use_irq ? 16 : 8));
+ 	}
+ 	rmx_release_all();
+ out:
+diff --git a/bsd/dev/sweet_a6xx.c b/bsd/dev/sweet_a6xx.c
+index 64c9240..8354413 100644
+--- a/bsd/dev/sweet_a6xx.c
++++ b/bsd/dev/sweet_a6xx.c
+@@ -778,7 +778,11 @@ uint32_t a6_submit_ibs_async(struct a6_gpu *g, const uint64_t *iova, const uint3
+ 	dw[n++] = (uint32_t)(ts + 8);
+ 	dw[n++] = (uint32_t)((ts + 8) >> 32);
+ 	dw[n++] = a6_pkt7(A6_CP_EVENT_WRITE, 4);
++#ifdef KERNEL
++	dw[n++] = 0x04 | (1u << 31);		/* CACHE_FLUSH_TS + RBBM_INT_0 bit 20 fence IRQ */
++#else
+ 	dw[n++] = 0x04;				/* CACHE_FLUSH_TS: the fence lands once the caches are clean */
++#endif
+ 	dw[n++] = (uint32_t)fva;
+ 	dw[n++] = (uint32_t)(fva >> 32);
+ 	dw[n++] = g->fence + 1;
+@@ -1060,7 +1064,29 @@ static int gpu_cp_init(struct a6_gpu *g, bool resume)
+ 	if (resume ? zap_resume() : zap_load(g))
+ 		return -1;
+ 	uint32_t secure[] = { a6_pkt7(A6_CP_SET_SECURE_MODE, 1), 0 };
+-	return a6_ring(g, secure, 2, "secure mode off", 1000);
++	if (a6_ring(g, secure, 2, "secure mode off", 1000))
++		return -1;
++#ifdef KERNEL
++	a6_irq_enable();
++#endif
++	return 0;
++}
++
++void a6_irq_enable(void)
++{
++	wr32(GREG(0x0037), 0xffffffffu);	/* RBBM_INT_CLEAR_CMD */
++	wr32(GREG(0x0038), 1u << 20);		/* RBBM_INT_0_MASK: CP_CACHE_FLUSH_TS */
++	(void)rd32(GREG(RBBM_INT_STATUS));
++}
++
++uint32_t a6_irq_ack(void)
++{
++	uint32_t s = rd32(GREG(RBBM_INT_STATUS));
++	if (s) {
++		wr32(GREG(0x0037), s);
++		(void)rd32(GREG(RBBM_INT_STATUS));
++	}
++	return s;
+ }
+ 
+ int a6_power_up(struct a6_gpu *g)
+@@ -1092,7 +1118,7 @@ static const uint32_t blit_init[][2] = {
+ #define EV_PC_CCU_FLUSH_COLOR_TS 0x1d
+ #define EV_CACHE_INVALIDATE	0x31
+ 
+-uint32_t a6_blit_ib(const struct a6_gpu *g, const struct a6_blit *b, uint32_t *dw)
++uint32_t a6_blit_begin(const struct a6_gpu *g, uint32_t *dw)
+ {
+ 	(void)g;
+ 	uint32_t n = 0;
+@@ -1116,7 +1142,19 @@ uint32_t a6_blit_ib(const struct a6_gpu *g, const struct a6_blit *b, uint32_t *d
+ 	EV(EV_PC_CCU_INVALIDATE_COLOR);
+ 	EV(EV_CACHE_INVALIDATE);
+ 	dw[n++] = a6_pkt7(A6_CP_WAIT_FOR_IDLE, 0);
++#undef EV
++#undef EV_TS
++#undef REG
++	return n;
++}
+ 
++uint32_t a6_blit_op(const struct a6_gpu *g, const struct a6_blit *b, uint32_t *dw)
++{
++	(void)g;
++	uint32_t n = 0;
++#define REG(r, v)	do { dw[n++] = a6_pkt4((r), 1); dw[n++] = (v); } while (0)
++	if (b->blend)
++		dw[n++] = a6_pkt7(A6_CP_WAIT_FOR_IDLE, 0);
+ 	/* Blend: colour src * SRC_ALPHA + dst * ONE_MINUS_SRC_ALPHA, alpha src + dst * (1 - src alpha). */
+ 	REG(0x8c01, b->blend ? 0x3809c181 : 0);	/* RB_A2D_PIXEL_CNTL */
+ 	uint32_t cntl = 0x00f03000 | (b->clip ? 1u << 16 : 0);
+@@ -1157,12 +1195,29 @@ uint32_t a6_blit_ib(const struct a6_gpu *g, const struct a6_blit *b, uint32_t *d
+ 	dw[n++] = 0;
+ 	dw[n++] = a6_pkt7(A6_CP_BLIT, 1);
+ 	dw[n++] = 3;			/* BLIT_OP_SCALE */
++#undef REG
++	return n;
++}
++
++uint32_t a6_blit_end(const struct a6_gpu *g, uint32_t *dw)
++{
++	(void)g;
++	uint32_t n = 0;
++	uint64_t ts = a6_pool_va(A6_OFF_SCRATCH + 0x900);
++#define EV_TS(e)	do { dw[n++] = a6_pkt7(A6_CP_EVENT_WRITE, 4); dw[n++] = (e); dw[n++] = (uint32_t)ts; \
++			     dw[n++] = (uint32_t)(ts >> 32); dw[n++] = 0; } while (0)
+ 	EV_TS(EV_PC_CCU_FLUSH_COLOR_TS);
+ 	EV_TS(EV_PC_CCU_FLUSH_DEPTH_TS);
+ 	EV_TS(EV_CACHE_FLUSH_TS);
+-#undef EV
+ #undef EV_TS
+-#undef REG
++	return n;
++}
++
++uint32_t a6_blit_ib(const struct a6_gpu *g, const struct a6_blit *b, uint32_t *dw)
++{
++	uint32_t n = a6_blit_begin(g, dw);
++	n += a6_blit_op(g, b, dw + n);
++	n += a6_blit_end(g, dw + n);
+ 	return n;
+ }
+ #endif
+diff --git a/bsd/dev/sweet_a6xx.h b/bsd/dev/sweet_a6xx.h
+index e4f04ef..311b620 100644
+--- a/bsd/dev/sweet_a6xx.h
++++ b/bsd/dev/sweet_a6xx.h
+@@ -45,11 +45,14 @@
+ 
+ #define A6_GVA_POOL		0x10000000ull
+ #define A6_GVA_FB		0x20000000ull
++#define A6_GVA_FB2		0x20a00000ull
+ #define A6_RING_SIZE		0x8000u
+ #define A6_RING_DW		(A6_RING_SIZE / 4)
+ 
+ #define A6_FB_PA		0x9d000000ull
+-#define A6_FB_SIZE		0xa00000ull	/* mapped for the GPU: 5 x 2 MB */
++#define A6_FB2_PA		0x9da00000ull
++#define A6_FB_STRIDE_PA		0xa00000ull
++#define A6_FB_SIZE		0x1400000ull	/* 20 MB mapped for FB0 + FB1 double-buffering */
+ 
+ #define A6_GPU_ID		640
+ #define A6_CHIP_ID		0x06040001ull
+@@ -124,6 +127,8 @@ void a6_unmap_high(struct a6_gpu *g);	/* drop all mappings above 1 GB, reset the
+ void a6_tlb_flush(const struct a6_gpu *g);
+ int a6_clear_fault(const struct a6_gpu *g);	/* 1 if an SMMU fault was cleared */
+ uint32_t a6_fault_status(const struct a6_gpu *g, uint64_t *far, uint32_t *fsynr0);
++void a6_irq_enable(void);
++uint32_t a6_irq_ack(void);
+ 
+ /*
+  * Scaled, filtered 2D blit (the one Mesa's turnip emits for vkCmdBlitImage
+@@ -144,6 +149,9 @@ struct a6_blit {
+ 	uint32_t cx0, cy0, cx1, cy1;		/* destination, inclusive */
+ };
+ #define A6_BLIT_MAX_DW	256
++uint32_t a6_blit_begin(const struct a6_gpu *g, uint32_t *dw);
++uint32_t a6_blit_op(const struct a6_gpu *g, const struct a6_blit *b, uint32_t *dw);
++uint32_t a6_blit_end(const struct a6_gpu *g, uint32_t *dw);
+ uint32_t a6_blit_ib(const struct a6_gpu *g, const struct a6_blit *b, uint32_t *dw);
+ 
+ #define A6_CP_NOP		0x10
+diff --git a/bsd/dev/sweet_cpufreq.c b/bsd/dev/sweet_cpufreq.c
+index 82097a3..5080efc 100644
+--- a/bsd/dev/sweet_cpufreq.c
++++ b/bsd/dev/sweet_cpufreq.c
+@@ -15,6 +15,7 @@
+ #include <pexpert/pexpert.h>
+ 
+ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++extern int sweet_rpmh_write(const char *res, unsigned n, const uint32_t *offsets, const uint32_t *values);
+ void sweet_cpufreq_init(void);
+ 
+ #define OSM_FREQ_REG    0x110u          /* + 32 * index */
+@@ -26,10 +27,12 @@ void sweet_cpufreq_init(void);
+ static const struct {
+ 	const char *name;
+ 	uint32_t pa;
++	bool skip_boost;
+ } osm_clusters[] = {
+-	{"pwrcl (A55 x4)", 0x18323000u},
+-	{"perfcl (A76 x3)", 0x18325800u},
+-	{"perfpcl (A76 prime)", 0x18327800u},
++	{"l3 (shared DynamIQ)", 0x18321000u, false},
++	{"pwrcl (A55 x4)", 0x18323000u, true},
++	{"perfcl (A76 x3)", 0x18325800u, true},
++	{"perfpcl (A76 prime)", 0x18327800u, false},
+ };
+ 
+ static uint32_t
+@@ -68,8 +71,8 @@ sweet_cpufreq_init(void)
+ 				len += snprintf(line + len, sizeof(line) - len, " %u%s", khz / 1000,
+ 				    cores == 1 ? "*" : "");
+ 			}
+-			/* core count 1 = single-core boost entry: skip, as Linux does */
+-			if (cores == 1 || (want > 1 && khz / 1000 > want)) {
++			/* Multi-core clusters skip single-core boost rows; Prime & L3 only have 1 domain. */
++			if ((osm_clusters[c].skip_boost && cores == 1) || (want > 1 && khz / 1000 > want)) {
+ 				continue;
+ 			}
+ 			if (khz > best_khz) {
+@@ -88,5 +91,13 @@ sweet_cpufreq_init(void)
+ 		printf("SWEET CPUFREQ: %s index %u -> %u (%u MHz), reads back %u\n",
+ 		    osm_clusters[c].name, cur, best, best_khz / 1000, osm_rd(base, OSM_DESIRED));
+ 	}
++	if (want != 0) {
++		static const char *const bcms[] = { "MC0", "SH0", "SN0", "CN0" };
++		for (unsigned i = 0; i < sizeof(bcms) / sizeof(bcms[0]); ++i) {
++			uint32_t off = 0, val = (1u << 30) | (1u << 29) | (0x3fffu << 14) | 0x3fffu;
++			int rc = sweet_rpmh_write(bcms[i], 1, &off, &val);
++			printf("SWEET CPUFREQ: RPMh BCM %s peak vote -> %d\n", bcms[i], rc);
++		}
++	}
+ }
+ #endif /* ARM64_BOARD_CONFIG_SWEET */
+diff --git a/bsd/dev/sweet_gpu.c b/bsd/dev/sweet_gpu.c
+index cdb1adc..54a0d1d 100644
+--- a/bsd/dev/sweet_gpu.c
++++ b/bsd/dev/sweet_gpu.c
+@@ -28,6 +28,9 @@
+ #include <vm/vm_kern.h>
+ #include <pexpert/pexpert.h>
+ #include <pexpert/device_tree.h>
++#include <pexpert/arm64/board_config.h>
++#include <machine/atomic.h>
++#include <os/atomic_private.h>
+ #include <libkern/libkern.h>
+ #include <mach/mach_time.h>
+ #include "sweet_a6xx.h"
+@@ -51,6 +54,10 @@ int sweet_gpu_present(int slot, uintptr_t kva, uint32_t offset, uint32_t w, uint
+ 	uint32_t fb_pitch, uint32_t corner_radius, uint32_t *out_dx, uint32_t *out_dy,
+ 	uint32_t *out_dw, uint32_t *out_dh);
+ void sweet_gpu_panel_stride(uint32_t stride);
++void sweet_gpu_panel_fb0(void);
++bool sweet_gpu_te_phase(uint64_t now, uint64_t *last_te_abs, uint64_t *period_abs);
++bool sweet_gpu_fence_done(uint32_t fence);
++int sweet_gpu_wait_fence_ns(uint32_t fence, uint64_t timeout_ns);
+ int sweet_gpu_map_user(uint64_t *iova_out, const uint64_t *pages, uint32_t npages, uint32_t page_size);
+ int sweet_gpu_submit_user(uint64_t ib_iova, uint32_t dwords, uint32_t timeout_ms, uint32_t *fence_out);
+ 
+@@ -61,11 +68,18 @@ volatile uint32_t sweet_backlight_alpha;
+ 
+ static struct a6_gpu gpu;
+ static vm_offset_t pool_kva;
+-/* More GPU page tables than the pool's arena (~250 tables = 500 MB mapped): 2048 more (4 GB) */
+-#define PT_EXTRA_SIZE   0x800000ULL
++/* 6144 extra 4K page tables (12 GB GPU VA space) so multi-client Turnip heaps never exhaust L3 tables */
++#define PT_EXTRA_SIZE   0x1800000ULL
+ static vm_offset_t pt_kva;
+ static uint64_t pt_pa;
+ static volatile bool gpu_ready;
++#define SWEET_GPU_INTID 332u
++static uint32_t _Atomic gpu_done_fence;
++static uint32_t _Atomic active_fb;
++static uint32_t _Atomic pending_flip_fence;
++static volatile uint32_t pending_flip_buf;
++static uint32_t fb_cleared_mask;
++static uint64_t last_fit_key;
+ static LCK_GRP_DECLARE(sweet_gpu_grp, "sweet_gpu");
+ static LCK_MTX_DECLARE(sweet_gpu_lock, &sweet_gpu_grp);
+ 
+@@ -253,21 +267,51 @@ gpu_bus_vote(void)
+ 	}
+ }
+ 
++static uint32_t
++gpu_sync_done_fence(void)
++{
++	uint32_t done = a6_fence_read(&gpu);
++	uint32_t prev = os_atomic_load(&gpu_done_fence, relaxed);
++	if ((int32_t)(done - prev) > 0) {
++		os_atomic_store(&gpu_done_fence, done, release);
++		return done;
++	}
++	return prev;
++}
++
++static void gpu_check_flip(uint32_t done);
++
++static void
++gpu_irq_handler(void *arg __unused)
++{
++	if (!gpu_ready) {
++		return;
++	}
++	(void)a6_irq_ack();
++	uint32_t done = gpu_sync_done_fence();
++	gpu_check_flip(done);
++	thread_wakeup((event_t)&gpu_done_fence);
++}
++
+ static void
+ gpu_thread(void *arg __unused, wait_result_t wr __unused)
+ {
+ 	uint64_t t0 = mach_absolute_time(), ns;
++	/* Pre-map GPU + MDP 2 MB MMIO windows in thread context before enabling ISR. */
++	(void)gpu_io(A6_GPU_BASE);
++	(void)gpu_io(0x0ae00000ULL);
+ 	gpu_bus_vote();
+ 	lck_mtx_lock(&sweet_gpu_lock);
+ 	int rc = a6_power_up(&gpu);
+ 	if (!rc) {
+ 		a6_unmap_high(&gpu);
+ 		gpu_ready = true;
++		sweet_gic_register_spi(SWEET_GPU_INTID, 0, gpu_irq_handler, NULL);
+ 	}
+ 	lck_mtx_unlock(&sweet_gpu_lock);
+ 	absolutetime_to_nanoseconds(mach_absolute_time() - t0, &ns);
+-	a6_log("bring-up %s in %llu ms (pool 0x%llx)\n", rc ? "FAILED" : "done, GPU ready", ns / 1000000,
+-	    gpu.pool_pa);
++	a6_log("bring-up %s in %llu ms (pool 0x%llx, irq %u)\n", rc ? "FAILED" : "done, GPU ready", ns / 1000000,
++	    gpu.pool_pa, SWEET_GPU_INTID);
+ 	(void)thread_terminate(current_thread());
+ 	thread_block(THREAD_CONTINUE_NULL);
+ }
+@@ -445,6 +489,9 @@ gpu_recover_locked(const char *why)
+ 		gpu_ready = false;
+ 	}
+ 	a6_fence_force(&gpu);
++	os_atomic_store(&pending_flip_fence, 0u, release);
++	os_atomic_store(&gpu_done_fence, gpu.fence, release);
++	thread_wakeup((event_t)&gpu_done_fence);
+ 	progress_fence = gpu.fence;
+ 	progress_abs = mach_absolute_time();
+ }
+@@ -453,13 +500,89 @@ gpu_recover_locked(const char *why)
+ 
+ #define MDP             0x0ae00000ULL
+ #define SSPP_VIG(n)     (MDP + 0x5000 + 0x2000ULL * (n))
++#define SSPP_SRC0_ADDR  0x14
+ #define SSPP_YSTRIDE0   0x24
+ #define CTL0_FLUSH      (MDP + 0x2000 + 0x18)
++#define MDP_INTF1       (MDP + 0x6b800ULL)
++#define INTF_TEAR_EN        0x284
++#define INTF_TEAR_VSYNC_CFG 0x288
++#define INTF_TEAR_INIT_VAL  0x294
++#define INTF_TEAR_INT_COUNT 0x298
++
++static void
++gpu_check_flip(uint32_t done)
++{
++	uint32_t pf = os_atomic_load(&pending_flip_fence, acquire);
++	if (pf != 0 && (int32_t)(done - pf) >= 0) {
++		uint32_t buf = pending_flip_buf & 1u;
++		if (os_atomic_cmpxchg(&pending_flip_fence, pf, 0u, acq_rel)) {
++			uint32_t pa = (uint32_t)(buf ? A6_FB2_PA : A6_FB_PA);
++			a6_wr(SSPP_VIG(0) + SSPP_SRC0_ADDR, pa);
++			a6_wr(SSPP_VIG(1) + SSPP_SRC0_ADDR, pa);
++			a6_wr(CTL0_FLUSH, 0x3);
++			os_atomic_store(&active_fb, buf, release);
++		}
++	}
++}
++
++void
++sweet_gpu_panel_fb0(void)
++{
++	(void)gpu_io(MDP);
++	os_atomic_store(&pending_flip_fence, 0u, release);
++	a6_wr(SSPP_VIG(0) + SSPP_SRC0_ADDR, (uint32_t)A6_FB_PA);
++	a6_wr(SSPP_VIG(1) + SSPP_SRC0_ADDR, (uint32_t)A6_FB_PA);
++	a6_wr(CTL0_FLUSH, 0x3);
++	os_atomic_store(&active_fb, 0u, release);
++}
++
++/*
++ * Read SDE INTF_1 hardware tear-check counter (clocked by the same 19.2 MHz XO
++ * as mach_absolute_time) and return the exact host timestamp of the most recent
++ * panel TE edge plus the panel refresh period (~320,641 ticks = 59.88 Hz).
++ */
++bool
++sweet_gpu_te_phase(uint64_t now, uint64_t *last_te_abs, uint64_t *period_abs)
++{
++	static uint64_t tracked_period = 320641ULL;
++	static uint64_t prev_te;
++	(void)gpu_io(MDP);
++	if (gpu_ready) {
++		gpu_check_flip(gpu_sync_done_fence());
++	}
++	if ((a6_rd(MDP_INTF1 + INTF_TEAR_EN) & 1u) == 0) {
++		return false;
++	}
++	uint32_t vcfg = a6_rd(MDP_INTF1 + INTF_TEAR_VSYNC_CFG) & 0xffffu;
++	uint32_t init = a6_rd(MDP_INTF1 + INTF_TEAR_INIT_VAL) & 0xffffu;
++	uint32_t icnt = a6_rd(MDP_INTF1 + INTF_TEAR_INT_COUNT) & 0xffffu;
++	if (vcfg < 16u || vcfg > 1024u || icnt < init) {
++		return false;
++	}
++	uint64_t elapsed = (uint64_t)(icnt - init) * (uint64_t)vcfg;
++	if (elapsed > 400000ULL || elapsed > now) {
++		return false;
++	}
++	uint64_t te = now - elapsed;
++	if (prev_te != 0 && te > prev_te) {
++		uint64_t delta = te - prev_te;
++		if (delta >= 280000ULL && delta <= 360000ULL) {
++			tracked_period = (tracked_period * 7ULL + delta) >> 3;
++		}
++	}
++	if (prev_te == 0 || te > prev_te + 160000ULL) {
++		prev_te = te;
++	}
++	*last_te_abs = te;
++	*period_abs = tracked_period;
++	return true;
++}
+ 
+ /* ABL scans out through VIG0 + VIG1 (540 columns each); autorefresh picks a flushed change up. */
+ void
+ sweet_gpu_panel_stride(uint32_t stride)
+ {
++	(void)gpu_io(MDP);
+ 	a6_wr(SSPP_VIG(0) + SSPP_YSTRIDE0, stride);
+ 	a6_wr(SSPP_VIG(1) + SSPP_YSTRIDE0, stride);
+ 	a6_wr(CTL0_FLUSH, 0x3);
+@@ -536,13 +659,14 @@ static uint32_t present_next;
+ static int
+ present_wait_locked(uint32_t k, const char *why)
+ {
+-	while (present_fence[k] && !a6_fence_done(&gpu, present_fence[k])) {
++	while (present_fence[k] && !sweet_gpu_fence_done(present_fence[k])) {
+ 		if (gpu_hung_locked(500)) {
+ 			gpu_recover_locked(why);
+ 			return -1;
+ 		}
++		uint32_t want = present_fence[k];
+ 		lck_mtx_unlock(&sweet_gpu_lock);
+-		delay(20);
++		(void)sweet_gpu_wait_fence_ns(want, 2000000ULL);
+ 		lck_mtx_lock(&sweet_gpu_lock);
+ 	}
+ 	return 0;
+@@ -649,13 +773,25 @@ sweet_gpu_present(int s, uintptr_t kva, uint32_t offset, uint32_t w, uint32_t h,
+ 	if (dim > 240) {
+ 		dim = 240;
+ 	}
+-	uint32_t n = 0;
+-	if (dim > 0) {
+-		/*
+-		 * Tear-free AMOLED software dimming: scale into DISPLAY_STAGE_OFF, blend the
+-		 * translucent black dim tile (and optional rounded-corner mattes) off-screen,
+-		 * then copy the finished rectangle to A6_GVA_FB in a single pass.
+-		 */
++	/*
++	 * True SDE hardware double-buffering (FB0 @ 0x9d000000, FB1 @ 0x9da00000) +
++	 * coalesced single-setup 2D blit stream: render scale + optional dim + optional
++	 * corner mattes directly into the offscreen backbuffer with zero staging copies,
++	 * then flip VIG0/VIG1 + CTL0_FLUSH in gpu_irq_handler the microsecond the fence lands.
++	 */
++	gpu_check_flip(gpu_sync_done_fence());
++	uint32_t k = present_next & 1u;
++	int rc = present_wait_locked(k, "present");
++	if (rc == 0) {
++		uint32_t front = os_atomic_load(&active_fb, acquire) & 1u;
++		uint32_t back = 1u - front;
++		uint64_t dst_fb = back ? A6_GVA_FB2 : A6_GVA_FB;
++		uint64_t fit_key = ((uint64_t)frame.dx << 48) | ((uint64_t)frame.dy << 32) |
++		    ((uint64_t)frame.dw << 16) | (uint64_t)frame.dh;
++		if (fit_key != last_fit_key) {
++			last_fit_key = fit_key;
++			fb_cleared_mask = 0;
++		}
+ 		if (!display_dim_built) {
+ 			display_dim_build();
+ 		}
+@@ -663,18 +799,32 @@ sweet_gpu_present(int s, uintptr_t kva, uint32_t offset, uint32_t w, uint32_t h,
+ 			display_mask_build(corner_radius, ext);
+ 			display_mask_radius = corner_radius;
+ 		}
+-		struct a6_blit sframe = frame;
+-		sframe.dst_iova = A6_GVA_POOL + DISPLAY_STAGE_OFF;
+-		n += a6_blit_ib(&gpu, &sframe, ib + n);
+-		struct a6_blit dim_blit = {
+-			.src_iova = A6_GVA_POOL + DISPLAY_DIM_OFF + (uint64_t)dim * DISPLAY_DIM_STRIDE,
+-			.src_w = DISPLAY_DIM_TILE, .src_h = DISPLAY_DIM_TILE, .src_pitch = DISPLAY_DIM_PITCH,
+-			.sw = DISPLAY_DIM_TILE, .sh = DISPLAY_DIM_TILE,
+-			.dst_iova = A6_GVA_POOL + DISPLAY_STAGE_OFF, .dst_pitch = fb_pitch,
+-			.dx = frame.dx, .dy = frame.dy, .dw = frame.dw, .dh = frame.dh,
+-			.blend = true,
+-		};
+-		n += a6_blit_ib(&gpu, &dim_blit, ib + n);
++		uint32_t n = a6_blit_begin(&gpu, ib);
++		if (!(fb_cleared_mask & (1u << back))) {
++			struct a6_blit clr = {
++				.src_iova = A6_GVA_POOL + DISPLAY_DIM_OFF + 255ULL * DISPLAY_DIM_STRIDE,
++				.src_w = DISPLAY_DIM_TILE, .src_h = DISPLAY_DIM_TILE, .src_pitch = DISPLAY_DIM_PITCH,
++				.sw = DISPLAY_DIM_TILE, .sh = DISPLAY_DIM_TILE,
++				.dst_iova = dst_fb, .dst_pitch = fb_pitch,
++				.dx = 0, .dy = 0, .dw = PANEL_W, .dh = PANEL_H,
++			};
++			n += a6_blit_op(&gpu, &clr, ib + n);
++			fb_cleared_mask |= (1u << back);
++		}
++		struct a6_blit bmain = frame;
++		bmain.dst_iova = dst_fb;
++		n += a6_blit_op(&gpu, &bmain, ib + n);
++		if (dim > 0) {
++			struct a6_blit dim_blit = {
++				.src_iova = A6_GVA_POOL + DISPLAY_DIM_OFF + (uint64_t)dim * DISPLAY_DIM_STRIDE,
++				.src_w = DISPLAY_DIM_TILE, .src_h = DISPLAY_DIM_TILE, .src_pitch = DISPLAY_DIM_PITCH,
++				.sw = DISPLAY_DIM_TILE, .sh = DISPLAY_DIM_TILE,
++				.dst_iova = dst_fb, .dst_pitch = fb_pitch,
++				.dx = frame.dx, .dy = frame.dy, .dw = frame.dw, .dh = frame.dh,
++				.blend = true,
++			};
++			n += a6_blit_op(&gpu, &dim_blit, ib + n);
++		}
+ 		if (ext) {
+ 			uint32_t top = frame.dy, bottom = frame.dy + frame.dh - ext;
+ 			for (uint32_t corner = 0; corner < 4; corner++) {
+@@ -683,86 +833,28 @@ sweet_gpu_present(int s, uintptr_t kva, uint32_t offset, uint32_t w, uint32_t h,
+ 					.src_w = DISPLAY_MASK_DIM, .src_h = DISPLAY_MASK_DIM, .src_pitch = DISPLAY_MASK_PITCH,
+ 					.sx = (corner & 1) * DISPLAY_MASK_SIDE, .sy = (corner >> 1) * DISPLAY_MASK_SIDE,
+ 					.sw = ext, .sh = ext,
+-					.dst_iova = A6_GVA_POOL + DISPLAY_STAGE_OFF, .dst_pitch = fb_pitch,
++					.dst_iova = dst_fb, .dst_pitch = fb_pitch,
+ 					.dx = (corner & 1) ? frame.dx + frame.dw - ext : frame.dx,
+ 					.dy = (corner & 2) ? bottom : top,
+ 					.dw = ext, .dh = ext, .blend = true,
+ 				};
+-				n += a6_blit_ib(&gpu, &matte, ib + n);
++				n += a6_blit_op(&gpu, &matte, ib + n);
+ 			}
+ 		}
+-		struct a6_blit copy_all = {
+-			.src_iova = A6_GVA_POOL + DISPLAY_STAGE_OFF,
+-			.src_w = PANEL_W, .src_h = PANEL_H, .src_pitch = fb_pitch,
+-			.sx = frame.dx, .sy = frame.dy, .sw = frame.dw, .sh = frame.dh,
+-			.dst_iova = A6_GVA_FB, .dst_pitch = fb_pitch,
+-			.dx = frame.dx, .dy = frame.dy, .dw = frame.dw, .dh = frame.dh,
+-		};
+-		n += a6_blit_ib(&gpu, &copy_all, ib + n);
+-	} else if (ext) {
+-		if (display_mask_radius != corner_radius) {
+-			display_mask_build(corner_radius, ext);
+-			display_mask_radius = corner_radius;
+-		}
+-		uint32_t top = frame.dy, bottom = frame.dy + frame.dh - ext;
+-		struct a6_blit b = frame;
+-		b.clip = true;
+-		b.cx0 = 0;
+-		b.cx1 = PANEL_W - 1;
+-		/* The rows between the corners straight to the panel ... */
+-		b.cy0 = top + ext;
+-		b.cy1 = bottom - 1;
+-		n += a6_blit_ib(&gpu, &b, ib + n);
+-		/* ... the corner rows to the stage ... */
+-		b.dst_iova = A6_GVA_POOL + DISPLAY_STAGE_OFF;
+-		b.cy0 = top;
+-		b.cy1 = top + ext - 1;
+-		n += a6_blit_ib(&gpu, &b, ib + n);
+-		b.cy0 = bottom;
+-		b.cy1 = bottom + ext - 1;
+-		n += a6_blit_ib(&gpu, &b, ib + n);
+-		/* ... darkened by the mattes ... */
+-		for (uint32_t corner = 0; corner < 4; corner++) {
+-			struct a6_blit matte = {
+-				.src_iova = A6_GVA_POOL + DISPLAY_MASK_OFF,
+-				.src_w = DISPLAY_MASK_DIM, .src_h = DISPLAY_MASK_DIM, .src_pitch = DISPLAY_MASK_PITCH,
+-				.sx = (corner & 1) * DISPLAY_MASK_SIDE, .sy = (corner >> 1) * DISPLAY_MASK_SIDE,
+-				.sw = ext, .sh = ext,
+-				.dst_iova = A6_GVA_POOL + DISPLAY_STAGE_OFF, .dst_pitch = fb_pitch,
+-				.dx = (corner & 1) ? frame.dx + frame.dw - ext : frame.dx,
+-				.dy = (corner & 2) ? bottom : top,
+-				.dw = ext, .dh = ext, .blend = true,
+-			};
+-			n += a6_blit_ib(&gpu, &matte, ib + n);
+-		}
+-		/* ... then copied to the panel. */
+-		for (uint32_t band = 0; band < 2; band++) {
+-			uint32_t y = band ? bottom : top;
+-			struct a6_blit copy = {
+-				.src_iova = A6_GVA_POOL + DISPLAY_STAGE_OFF,
+-				.src_w = PANEL_W, .src_h = PANEL_H, .src_pitch = fb_pitch,
+-				.sx = frame.dx, .sy = y, .sw = frame.dw, .sh = ext,
+-				.dst_iova = A6_GVA_FB, .dst_pitch = fb_pitch,
+-				.dx = frame.dx, .dy = y, .dw = frame.dw, .dh = ext,
+-			};
+-			n += a6_blit_ib(&gpu, &copy, ib + n);
+-		}
+-	} else {
+-		n = a6_blit_ib(&gpu, &frame, ib);
+-	}
+-	/*
+-	 * Not waited for: the vsync timer must not block behind the Metal clients' work queued ahead of it
+-	 * (a waited present took 15-30 ms with metal2vulkan's frames in the ring, and the vsync notifications
+-	 * CA paces on came late). Two IB slots: only the one two presents back must have landed.
+-	 */
+-	uint32_t k = present_next & 1;
+-	int rc = present_wait_locked(k, "present");
+-	if (rc == 0) {
++		n += a6_blit_end(&gpu, ib + n);
+ 		a6_write(a6_pool_pa(&gpu, PRESENT_IB(k)), ib, 4ULL * n);
+ 		gpu_note_submit_locked();
+-		present_fence[k] = a6_submit_ib_async(&gpu, a6_pool_va(PRESENT_IB(k)), n, 100);
+-		gpu_owner_locked(present_fence[k], 0);
+-		rc = present_fence[k] ? 0 : -1;
++		uint32_t f = a6_submit_ib_async(&gpu, a6_pool_va(PRESENT_IB(k)), n, 100);
++		present_fence[k] = f;
++		gpu_owner_locked(f, 0);
++		if (f != 0) {
++			pending_flip_buf = back;
++			os_atomic_store(&pending_flip_fence, f, release);
++			gpu_check_flip(gpu_sync_done_fence());
++			rc = 0;
++		} else {
++			rc = -1;
++		}
+ 		present_next++;
+ 	}
+ 	lck_mtx_unlock(&sweet_gpu_lock);
+@@ -920,17 +1012,14 @@ sweet_gpu_submit_user_async(uint64_t ib_iova, uint32_t dwords)
+ int
+ sweet_gpu_wait_fence(uint32_t fence, uint32_t timeout_ms)
+ {
+-	for (unsigned i = 0; i < timeout_ms * 50; i++) {
+-		if (!gpu_ready) {
+-			return -1;
+-		}
+-		if (a6_fence_done(&gpu, fence)) {
+-			return 0;
+-		}
+-		delay(20);
++	if (!gpu_ready) {
++		return -1;
++	}
++	if (sweet_gpu_wait_fence_ns(fence, (uint64_t)timeout_ms * 1000000ULL) == 0) {
++		return 0;
+ 	}
+ 	lck_mtx_lock(&sweet_gpu_lock);
+-	int rc = a6_fence_done(&gpu, fence) ? 0 : -1;
++	int rc = sweet_gpu_fence_done(fence) ? 0 : -1;
+ 	if (rc) {
+ 		gpu_recover_locked("user fence");
+ 	}
+@@ -967,45 +1056,93 @@ sweet_gpu_submit_user(uint64_t ib_iova, uint32_t dwords, uint32_t timeout_ms, ui
+  * node is <0xc0000000 0x140000000>; XNU takes 4 GB up; the boot ramdisk at 0xc0000000 is dead once the
+  * shim has jumped; phone/wifi's radio uses 0xe0000000-0xe1000000). Units of 16 KB (a CPU page).
+  */
+-#define GPOOL_UNIT      0x4000ULL
+-#define GPOOL_FREE_MAX  4096
+-static const struct { uint64_t pa, size; } gpool_ranges[] = {
+-	{ 0xc4000000ULL, 0x1c000000ULL },       /* 448 MB (the first 64 MB left to ABL's ramdisk) */
+-	{ 0xe1000000ULL, 0x1f000000ULL },       /* 496 MB */
++#define GPOOL_UNIT       0x4000ULL
++#define GPOOL_FREE_MAX   4096
++#define GPOOL_RANGES_MAX 4
++static struct {
++	uint64_t pa, size;
++	vm_offset_t kva;
++} gpool_ranges[GPOOL_RANGES_MAX] = {
++	{ 0xc4000000ULL, 0x1c000000ULL, 0 },    /* 448 MB (the first 64 MB left to ABL's ramdisk) */
++	{ 0xe1000000ULL, 0x1f000000ULL, 0 },    /* 496 MB */
+ };
++static unsigned gpool_nranges = 2;
+ static struct { uint64_t pa, size; } gpool_free[GPOOL_FREE_MAX];       /* sorted by address, merged */
+ static uint32_t gpool_nfree;
+-static uint64_t gpool_used, gpool_peak;
++static uint64_t gpool_used, gpool_peak, gpool_total;
++static bool gpool_ready;
++static LCK_MTX_DECLARE(sweet_gpool_lock, &sweet_gpu_grp);
++
++static void
++gpool_init_locked(void)
++{
++	if (gpool_ready) {
++		return;
++	}
++	DTEntry chosen;
++	void const *prop = NULL;
++	unsigned int sz = 0;
++	if (SecureDTLookupEntry(NULL, "/chosen", &chosen) == kSuccess &&
++	    SecureDTGetProperty(chosen, "sweet-gpool-hi", &prop, &sz) == kSuccess &&
++	    sz >= 2 * sizeof(uint64_t)) {
++		const uint64_t *hi = (const uint64_t *)prop;
++		if (hi[0] >= 0x100000000ULL && hi[1] >= GPOOL_UNIT &&
++		    !pmap_valid_address(hi[0]) && gpool_nranges < GPOOL_RANGES_MAX) {
++			gpool_ranges[gpool_nranges].pa = hi[0];
++			gpool_ranges[gpool_nranges].size = hi[1] & ~(GPOOL_UNIT - 1);
++			gpool_ranges[gpool_nranges].kva = 0;
++			gpool_nranges++;
++		}
++	}
++	gpool_total = 0;
++	for (unsigned i = 0; i < gpool_nranges; i++) {
++		gpool_ranges[i].kva = ml_io_map_unmappable((vm_offset_t)gpool_ranges[i].pa,
++		    (vm_size_t)gpool_ranges[i].size, VM_WIMG_WCOMB);
++		gpool_free[gpool_nfree].pa = gpool_ranges[i].pa;
++		gpool_free[gpool_nfree].size = gpool_ranges[i].size;
++		gpool_nfree++;
++		gpool_total += gpool_ranges[i].size;
++	}
++	gpool_ready = true;
++	a6_log("pool: %llu MB across %u permanent WC ranges ready\n", gpool_total >> 20, gpool_nranges);
++}
++
++/* Permanent WC kernel pointer for zeroing pool BOs without per-BO pmap map/unmap TLB shootdowns. */
++void *sweet_gpu_pool_kva(uint64_t pa, uint64_t len);
++void *
++sweet_gpu_pool_kva(uint64_t pa, uint64_t len)
++{
++	for (unsigned i = 0; i < gpool_nranges; i++) {
++		if (gpool_ranges[i].kva != 0 && pa >= gpool_ranges[i].pa &&
++		    pa + len <= gpool_ranges[i].pa + gpool_ranges[i].size) {
++			return (void *)(gpool_ranges[i].kva + (pa - gpool_ranges[i].pa));
++		}
++	}
++	return NULL;
++}
+ 
+ /* GPU pool bytes not in use (sweet_gpu_pool_alloc), for the per-client cap in SweetAccelerator */
+ uint64_t sweet_gpu_pool_avail(void);
+ uint64_t
+ sweet_gpu_pool_avail(void)
+ {
+-	uint64_t total = 0;
+-	for (unsigned i = 0; i < sizeof(gpool_ranges) / sizeof(gpool_ranges[0]); i++) {
+-		total += gpool_ranges[i].size;
++	if (!gpool_ready) {
++		lck_mtx_lock(&sweet_gpool_lock);
++		gpool_init_locked();
++		lck_mtx_unlock(&sweet_gpool_lock);
+ 	}
+-	return total - gpool_used;
++	return gpool_total - gpool_used;
+ }
+-static bool gpool_ready;
+-static LCK_MTX_DECLARE(sweet_gpool_lock, &sweet_gpu_grp);
+ 
+ /* First fit: the physical address of `bytes` (rounded to 16 KB), zeroing is the caller's. 0 = ok. */
+ int
+ sweet_gpu_pool_alloc(uint64_t bytes, uint64_t *pa)
+ {
+ 	uint64_t size = (bytes + GPOOL_UNIT - 1) & ~(GPOOL_UNIT - 1);
++	uint64_t log_peak = 0;
+ 	int rc = -1;
+ 	lck_mtx_lock(&sweet_gpool_lock);
+-	if (!gpool_ready) {
+-		for (unsigned i = 0; i < sizeof(gpool_ranges) / sizeof(gpool_ranges[0]); i++) {
+-			gpool_free[gpool_nfree].pa = gpool_ranges[i].pa;
+-			gpool_free[gpool_nfree].size = gpool_ranges[i].size;
+-			gpool_nfree++;
+-		}
+-		gpool_ready = true;
+-	}
++	gpool_init_locked();
+ 	for (uint32_t i = 0; i < gpool_nfree; i++) {
+ 		if (gpool_free[i].size >= size) {
+ 			*pa = gpool_free[i].pa;
+@@ -1017,16 +1154,20 @@ sweet_gpu_pool_alloc(uint64_t bytes, uint64_t *pa)
+ 			}
+ 			gpool_used += size;
+ 			if (gpool_used > gpool_peak) {
++				uint64_t old_peak = gpool_peak;
+ 				gpool_peak = gpool_used;
+-			}
+-			if ((gpool_used >> 25) != ((gpool_used - size) >> 25)) {
+-				a6_log("pool: %llu MB in use (peak %llu)\n", gpool_used >> 20, gpool_peak >> 20);
++				if ((gpool_peak >> 26) != (old_peak >> 26)) {
++					log_peak = gpool_peak;
++				}
+ 			}
+ 			rc = 0;
+ 			break;
+ 		}
+ 	}
+ 	lck_mtx_unlock(&sweet_gpool_lock);
++	if (log_peak) {
++		a6_log("pool: new peak %llu / %llu MB\n", log_peak >> 20, gpool_total >> 20);
++	}
+ 	if (rc) {
+ 		a6_log("pool: no %llu bytes free (%llu MB in use)\n", size, gpool_used >> 20);
+ 	}
+@@ -1039,9 +1180,6 @@ sweet_gpu_pool_free(uint64_t pa, uint64_t bytes)
+ 	uint64_t size = (bytes + GPOOL_UNIT - 1) & ~(GPOOL_UNIT - 1);
+ 	lck_mtx_lock(&sweet_gpool_lock);
+ 	gpool_used -= size;
+-	if ((gpool_used >> 25) != ((gpool_used + size) >> 25)) {
+-		a6_log("pool: %llu MB in use (peak %llu)\n", gpool_used >> 20, gpool_peak >> 20);
+-	}
+ 	uint32_t i = 0;
+ 	while (i < gpool_nfree && gpool_free[i].pa < pa) {
+ 		i++;
+@@ -1106,9 +1244,11 @@ sweet_gpu_window_free(uint64_t base)
+ 	lck_mtx_unlock(&sweet_gpu_lock);
+ }
+ 
+-/* 4K pages at iova (inside the caller's window), then a TLB flush. */
++int sweet_gpu_map_at_noflush(uint64_t iova, const uint64_t *pages, uint32_t npages);
++void sweet_gpu_tlb_flush(void);
++
+ int
+-sweet_gpu_map_at(uint64_t iova, const uint64_t *pages, uint32_t npages)
++sweet_gpu_map_at_noflush(uint64_t iova, const uint64_t *pages, uint32_t npages)
+ {
+ 	if (!gpu_ready || npages == 0 || iova < WIN_BASE) {
+ 		return -1;
+@@ -1118,8 +1258,27 @@ sweet_gpu_map_at(uint64_t iova, const uint64_t *pages, uint32_t npages)
+ 	if (rc) {
+ 		a6_unmap(&gpu, iova, (uint64_t)npages << 12);
+ 	}
++	lck_mtx_unlock(&sweet_gpu_lock);
++	return rc;
++}
++
++void
++sweet_gpu_tlb_flush(void)
++{
++	if (!gpu_ready) {
++		return;
++	}
++	lck_mtx_lock(&sweet_gpu_lock);
+ 	a6_tlb_flush(&gpu);
+ 	lck_mtx_unlock(&sweet_gpu_lock);
++}
++
++/* 4K pages at iova (inside the caller's window), then a TLB flush. */
++int
++sweet_gpu_map_at(uint64_t iova, const uint64_t *pages, uint32_t npages)
++{
++	int rc = sweet_gpu_map_at_noflush(iova, pages, npages);
++	sweet_gpu_tlb_flush();
+ 	return rc;
+ }
+ 
+@@ -1157,38 +1316,72 @@ sweet_gpu_submit_v2(const uint64_t *iova, const uint32_t *dwords, unsigned n, bo
+ bool
+ sweet_gpu_fence_done(uint32_t fence)
+ {
+-	return !gpu_ready || a6_fence_done(&gpu, fence);
++	if (!gpu_ready) {
++		return true;
++	}
++	if ((int32_t)(os_atomic_load(&gpu_done_fence, acquire) - fence) >= 0) {
++		return true;
++	}
++	return (int32_t)(gpu_sync_done_fence() - fence) >= 0;
+ }
+ 
+ /*
+- * Wait up to timeout_ns (0: look once) for a fence: 0 done, 1 timeout. A GPU that makes no progress for
+- * a second is reset here (its queued work is lost; sweet_gpu_lost tells the clients).
++ * IRQ-driven fence wait (INTID 332 CP_CACHE_FLUSH_TS): short 15 us spin for
++ * sub-frame micro-submits, then sleep on &gpu_done_fence woken immediately by
++ * gpu_irq_handler (250 us safety quantum). Zero busy-spin CPU burn.
+  */
+ int
+ sweet_gpu_wait_fence_ns(uint32_t fence, uint64_t timeout_ns)
+ {
+-	/* the hang check by time, not per call: Turnip's darwin backend waits in 1 ms slices */
+ 	static uint64_t last_check;
+-	uint64_t t0 = mach_absolute_time(), ns = 0, check_abs;
++	if (sweet_gpu_fence_done(fence)) {
++		return 0;
++	}
++	if (timeout_ns == 0) {
++		return 1;
++	}
++	uint64_t t0 = mach_absolute_time(), spin_end = t0 + 288ULL; /* ~15 us @ 19.2 MHz */
++	while (mach_absolute_time() < spin_end) {
++		__builtin_arm_isb(ISB_SY);
++		if ((int32_t)(os_atomic_load(&gpu_done_fence, acquire) - fence) >= 0) {
++			return 0;
++		}
++	}
++	if (sweet_gpu_fence_done(fence)) {
++		return 0;
++	}
++	uint64_t check_abs;
+ 	nanoseconds_to_absolutetime(5000000, &check_abs);
+ 	for (;;) {
+-		if (sweet_gpu_fence_done(fence)) {
+-			return 0;
++		uint64_t now = mach_absolute_time(), elapsed_ns = 0;
++		absolutetime_to_nanoseconds(now - t0, &elapsed_ns);
++		if (elapsed_ns >= timeout_ns) {
++			return sweet_gpu_fence_done(fence) ? 0 : 1;
+ 		}
+-		uint64_t now = mach_absolute_time();
+ 		if (now - last_check > check_abs) {
+ 			last_check = now;
+ 			lck_mtx_lock(&sweet_gpu_lock);
+-			if (!a6_fence_done(&gpu, fence) && gpu_hung_locked(1000)) {
++			if (!sweet_gpu_fence_done(fence) && gpu_hung_locked(1000)) {
+ 				gpu_recover_locked("v2 fence wait");
+ 			}
+ 			lck_mtx_unlock(&sweet_gpu_lock);
++			if (sweet_gpu_fence_done(fence)) {
++				return 0;
++			}
+ 		}
+-		absolutetime_to_nanoseconds(now - t0, &ns);
+-		if (ns >= timeout_ns) {
+-			return sweet_gpu_fence_done(fence) ? 0 : 1;
++		uint64_t rem_ns = timeout_ns - elapsed_ns;
++		uint64_t slice_ns = rem_ns < 250000ULL ? rem_ns : 250000ULL;
++		uint64_t wdeadline;
++		nanoseconds_to_deadline(slice_ns, &wdeadline);
++		(void)assert_wait_deadline((event_t)&gpu_done_fence, THREAD_UNINT, wdeadline);
++		if (sweet_gpu_fence_done(fence)) {
++			clear_wait(current_thread(), THREAD_AWAKENED);
++			return 0;
++		}
++		thread_block(THREAD_CONTINUE_NULL);
++		if (sweet_gpu_fence_done(fence)) {
++			return 0;
+ 		}
+-		delay(20);
+ 	}
+ }
+ 
+diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+index 083693a..80a8331 100644
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -610,7 +610,7 @@ sweet_ufs_init(void)
+ 	PE_parse_boot_argn("ufsroot", want, sizeof(want));
+ 	uint32_t rw = 0;
+ 	PE_parse_boot_argn("ufsrw", &rw, sizeof(rw));
+-	uint32_t cache = 0, wait = 0;
++	uint32_t cache = 1, wait = 1;
+ 	PE_parse_boot_argn("ufscache", &cache, sizeof(cache));
+ 	PE_parse_boot_argn("ufswait", &wait, sizeof(wait));
+ 	su.cache = (cache == 1);
+@@ -696,7 +696,7 @@ sweet_ufs_init(void)
+  */
+ #define SWEET_LOG_SIZE          (4u << 20)
+ #define SWEET_LOG_BLOCKS        (1 + SWEET_LOG_SIZE / UFS_BLOCK)
+-#define SWEET_LOG_SECS          10u
++#define SWEET_LOG_SECS          15u
+ 
+ static char sweet_log_ring[SWEET_LOG_SIZE];
+ static uint64_t _Atomic sweet_log_total;
+@@ -746,7 +746,26 @@ void
+ sweet_log_mirror_start(void)
+ {
+ 	extern vm_offset_t ml_io_map_wcomb(vm_offset_t, vm_size_t);
+-	vm_offset_t m = ml_io_map_wcomb((vm_offset_t)SWEET_MIRROR_PA, 0x1000 + SWEET_LOG_SIZE);
++	extern boolean_t pmap_valid_address(uint64_t pa);
++	uint32_t on = 0;
++	PE_parse_boot_argn("sweetmirror", &on, sizeof(on));
++	if (!on) {
++		return;
++	}
++	uint64_t mirror_pa = SWEET_MIRROR_PA;
++	DTEntry chosen;
++	void const *prop = NULL;
++	unsigned int sz = 0;
++	if (SecureDTLookupEntry(NULL, "/chosen", &chosen) == kSuccess &&
++	    SecureDTGetProperty(chosen, "sweet-mirror-pa", &prop, &sz) == kSuccess &&
++	    sz >= sizeof(uint64_t)) {
++		mirror_pa = *(const uint64_t *)prop;
++	}
++	if (pmap_valid_address(mirror_pa)) {
++		printf("SWEET LOG: mirror PA 0x%llx overlaps XNU RAM, skipping\n", mirror_pa);
++		return;
++	}
++	vm_offset_t m = ml_io_map_wcomb((vm_offset_t)mirror_pa, 0x1000 + SWEET_LOG_SIZE);
+ 	if (!m) {
+ 		return;
+ 	}
+@@ -765,7 +784,7 @@ sweet_log_mirror_start(void)
+ 	__asm__ volatile ("dsb sy" ::: "memory");
+ 	sweet_mirror_hdr = h;
+ 	sweet_mirror_ring = r;
+-	printf("SWEET LOG: uncached mirror at 0x%llx for crash rescue\n", SWEET_MIRROR_PA);
++	printf("SWEET LOG: uncached mirror at 0x%llx for crash rescue\n", mirror_pa);
+ }
+ 
+ /*
+@@ -880,7 +899,7 @@ sweet_log_thread(__unused void *arg, __unused wait_result_t wr)
+ 			memcpy(bounce, &h, sizeof(h));
+ 			error = ufs_write_blocks(base, 1);
+ 		}
+-		if (!error) {
++		if (!error && (seq & 3u) == 0) {
+ 			error = ufs_sync_cache();
+ 		}
+ 		lck_mtx_unlock(&sweet_ufs_lock);
+diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
+index 5897a3a..1e7377e 100644
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -1124,7 +1124,9 @@ bsdinit_task(void)
+ #endif
+ 
+ 	load_init_program(p);
++#if !defined(SWEET)
+ 	lock_trace = 1;
++#endif
+ }
+ 
+ kern_return_t
+diff --git a/config/MASTER.arm64.sweet b/config/MASTER.arm64.sweet
+index e305f0d..e52106b 100644
+--- a/config/MASTER.arm64.sweet
++++ b/config/MASTER.arm64.sweet
+@@ -25,15 +25,15 @@
+ #
+ #  KERNEL_BASE =    [ arm64 config_pmap_ppl medium msgb_large config_requires_u32_munging config_delay_idle_sleep config_proc_udata_storage config_uexc config_darkboot nos_arm_asm nos_arm_pmap ]
+ #  KERNEL_RELEASE = [ KERNEL_BASE ]
+-#  KERNEL_DEV =     [ KERNEL_BASE development mach_assert config_xnupost proc_ref_debug config_proc_resource_limits ]
++#  KERNEL_DEV =     [ KERNEL_BASE development mach_assert config_xnupost config_proc_resource_limits ]
+ #  KERNEL_DEBUG =   [ KERNEL_BASE debug mach_assert config_xnupost config_waitq_stats config_workloop_debug config_proc_resource_limits ]
+ #  BSD_BASE =       [ mach_bsd sysv_sem sysv_msg sysv_shm config_netboot config_imageboot psynch config_proc_uuid_policy config_coredump pgo config_personas ]
+ #  BSD_RELEASE =    [ BSD_BASE ]
+-#  BSD_DEV =        [ BSD_BASE config_vnguard ]
++#  BSD_DEV =        [ BSD_BASE ]
+ #  BSD_DEBUG =      [ BSD_BASE config_vnguard ]
+ #  FILESYS_BASE =   [ devfs fdesc fifo mockfs sweet_hfs fs_compression config_protect config_mnt_rootsnap config_rosv_startup config_mount_vm config_mount_prebootrecovery config_basesystemroot config_fse quota namedstreams config_imgsrc_access config_triggers config_searchfs config_volfs config_appledouble nullfs bindfs config_mnt_suid config_firmlinks config_dataless_files config_union_mounts config_file_leases ]
+ #  FILESYS_RELEASE= [ FILESYS_BASE ]
+-#  FILESYS_DEV =    [ FILESYS_BASE config_iocount_trace ]
++#  FILESYS_DEV =    [ FILESYS_BASE ]
+ #  FILESYS_DEBUG =  [ FILESYS_BASE config_iocount_trace ]
+ #  NFS =            [ nfsserver ]
+ #  SKYWALK_BASE =   [ skywalk config_nexus_user_pipe config_nexus_kernel_pipe config_nexus_monitor config_nexus_flowswitch config_nexus_netif ]
+@@ -54,15 +54,15 @@
+ #endif /*SOC_CONFIG_t8020 || SOC_IS_VIRTUALIZED*/
+ #  IOKIT_BASE =     [ iokit iokitcpp no_kernel_hid config_sleep iokitstats HIBERNATION ]
+ #  IOKIT_RELEASE =  [ IOKIT_BASE ]
+-#  IOKIT_DEV =      [ IOKIT_BASE iotracking ]
++#  IOKIT_DEV =      [ IOKIT_BASE ]
+ #  IOKIT_DEBUG =    [ IOKIT_BASE iotracking ]
+ #  LIBKERN_BASE =   [ libkerncpp config_blocks config_kec_fips crypto_sha2 config_img4 ]
+ #  LIBKERN_RELEASE =[ LIBKERN_BASE zlib ]
+-#  LIBKERN_DEV =    [ LIBKERN_BASE zlib iotracking ]
++#  LIBKERN_DEV =    [ LIBKERN_BASE zlib ]
+ #  LIBKERN_DEBUG =  [ LIBKERN_BASE zlib iotracking ]
+ #  PERF_DBG_BASE =  [ config_dtrace mach_kdp config_serial_kdp kdp_interactive_debugging config_kdp_coredump_encryption config_pervasive_energy PERFMON_BASE kperf kpc ]
+ #  PERF_DBG_RELEASE=[ PERF_DBG_BASE ist_kdebug ]
+-#  PERF_DBG_DEV =   [ PERF_DBG_BASE lock_stats zleaks alternate_debugger sched_hygiene_debug config_debug_syscall_rejection config_iotrace ]
++#  PERF_DBG_DEV =   [ PERF_DBG_BASE zleaks alternate_debugger config_debug_syscall_rejection ]
+ #  PERF_DBG_DEBUG = [ PERF_DBG_BASE lock_stats zleaks alternate_debugger sched_hygiene_debug config_debug_syscall_rejection config_iotrace ]
+ #if SOC_IS_VIRTUALIZED
+ #  PARAVIRT_BASE =  [ config_pv_ticket ]
+@@ -79,7 +79,7 @@
+ #  SCHED_DEBUG =    [ SCHED_BASE config_sched_grrr config_sched_proto ]
+ #  VM_BASE =        [ vm_pressure_events memorystatus config_code_decryption encrypted_swap config_deferred_reclaim ]
+ #  VM_RELEASE =     [ VM_BASE ]
+-#  VM_DEV =         [ VM_BASE dynamic_codesigning pgzalloc ]
++#  VM_DEV =         [ VM_BASE dynamic_codesigning ]
+ #  VM_DEBUG =       [ VM_BASE dynamic_codesigning pgzalloc ]
+ #  VM_KASAN =       [ VM_BASE dynamic_codesigning config_kasan config_ubsan config_kcov config_ksancov kernel_tbi ]
+ #  SECURITY =       [ config_macf config_audit kernel_integrity config_csr config_csr_from_dt config_setuid config_kas_info config_secure_bsd_root config_arcade config_supplemental_signatures second_static_trust_cache reslide_shared_cache ]
+diff --git a/iokit/Kernel/arm/SweetAccelerator.cpp b/iokit/Kernel/arm/SweetAccelerator.cpp
+index 0254860..afdff4a 100644
+--- a/iokit/Kernel/arm/SweetAccelerator.cpp
++++ b/iokit/Kernel/arm/SweetAccelerator.cpp
+@@ -56,13 +56,16 @@ void flush_dcache64(addr64_t addr, unsigned count, int phys);
+ int sweet_gpu_window_alloc(uint64_t *base, uint64_t *size);
+ void sweet_gpu_window_free(uint64_t base);
+ int sweet_gpu_map_at(uint64_t iova, const uint64_t *pages, uint32_t npages);
++int sweet_gpu_map_at_noflush(uint64_t iova, const uint64_t *pages, uint32_t npages);
++void sweet_gpu_tlb_flush(void);
+ void sweet_gpu_unmap_at(uint64_t iova, uint64_t len);
+ uint32_t sweet_gpu_submit_v2(const uint64_t *iova, const uint32_t *dwords, unsigned n, bool *busy);
+-int sweet_gpu_wait_fence_ns(uint32_t fence, uint64_t timeout_ns);
++int sweet_gpu_wait_fence_ns(uint32_t fence, uint32_t timeout_ns);
+ bool sweet_gpu_lost(uint64_t *epoch, uint32_t last_fence);
+ uint64_t sweet_gpu_recoveries(void);
+ uint64_t sweet_gpu_timestamp(void);
+ int sweet_gpu_pool_alloc(uint64_t bytes, uint64_t *pa);
++void *sweet_gpu_pool_kva(uint64_t pa, uint64_t len);
+ uint64_t sweet_gpu_pool_avail(void);
+ void sweet_gpu_pool_free(uint64_t pa, uint64_t bytes);
+ }
+@@ -152,7 +155,16 @@ class SweetAcceleratorUserClient : public IOUserClient {
+ 	char fName[32];
+ 	bool fSystem;                   /* backboardd / SpringBoard: no pool cap, and the reserve is theirs */
+ 	bool fCapLogged;
++	bool fClosing;
++	struct SweetV2Kept {
++		IOMemoryDescriptor *md;
++		uint64_t pa;
++		uint64_t len;
++	} fKept[32];
++	uint32_t fKeptCount;
++	uint64_t fKeptBytes;
+ 	bool v2PoolAllowed(uint64_t len);
++	void v2DrainKept(void);
+ 
+ 	int addMemory(IOMemoryDescriptor *md, uint64_t *handle, uint64_t *va);
+ 	IOReturn v2Method(uint32_t method, const void *in, uint32_t inSize, void *out, uint32_t *outSize);
+@@ -212,7 +224,7 @@ SweetAcceleratorUserClient::v2PoolAllowed(uint64_t len)
+ {
+ 	static uint32_t cap_mb, reserve_mb;
+ 	if (cap_mb == 0) {
+-		uint32_t v = 256;
++		uint32_t v = 640;
+ 		PE_parse_boot_argn("sweetgpucap", &v, sizeof(v));
+ 		reserve_mb = 160;
+ 		PE_parse_boot_argn("sweetgpureserve", &reserve_mb, sizeof(reserve_mb));
+@@ -253,7 +265,9 @@ SweetAcceleratorUserClient::free(void)
+ 	if (fLastFence != 0 && (fV2 ? sweet_gpu_wait_fence_ns(fLastFence, 2000000000ULL) : sweet_gpu_wait_fence(fLastFence, 2000))) {
+ 		IOLog("SWEET MTL: client freed with fence %u still pending\n", fLastFence);
+ 	}
++	fClosing = true;
+ 	if (fBO != NULL) {
++		v2DrainKept();
+ 		IOLog("SWEET MTL: v2 %s closed (GPU pool: %llu MB held, peak %llu MB)\n", fName, fPoolBytes >> 20, fPoolPeak >> 20);
+ 		for (uint32_t i = 0; i < fBOCap; i++) {
+ 			v2Release(&fBO[i]);
+@@ -464,6 +478,7 @@ SweetAcceleratorUserClient::externalMethod(uint32_t selector, IOExternalMethodAr
+ 			OSSafeReleaseNULL(s);
+ 			return kIOReturnNotFound;
+ 		}
++		s->gpuImported = true;
+ 		uint64_t handle = 0, va = 0;
+ 		int rc = addMemory(s->memory, &handle, &va);
+ 		out[2] = s->memory->getLength();
+@@ -572,7 +587,7 @@ struct sweet_zombie {
+ static void
+ sweet_zombie_sweep(void)
+ {
+-	if (sweet_zombie_lock == NULL) {
++	if (sweet_zombie_lock == NULL || sweet_zombies == NULL || sweet_zombies->getCount() == 0) {
+ 		return;
+ 	}
+ 	IOLockLock(sweet_zombie_lock);
+@@ -619,7 +634,19 @@ sweet_pool_release(IOMemoryDescriptor *md, uint64_t pa)
+ 	IOLockUnlock(sweet_zombie_lock);
+ }
+ 
+-/* Unmap from the GPU, unwire, drop (pool memory: once no task maps it any more) */
++void
++SweetAcceleratorUserClient::v2DrainKept(void)
++{
++	while (fKeptCount > 0) {
++		fKeptCount--;
++		SweetV2Kept k = fKept[fKeptCount];
++		fKeptBytes -= k.len;
++		fPoolBytes -= k.len;
++		sweet_pool_release(k.md, k.pa);
++	}
++}
++
++/* Unmap from the GPU, unwire, drop (pool memory: recycle clean unmapped BOs per client) */
+ void
+ SweetAcceleratorUserClient::v2Release(SweetV2BO *bo)
+ {
+@@ -633,8 +660,18 @@ SweetAcceleratorUserClient::v2Release(SweetV2BO *bo)
+ 		bo->md->complete();
+ 		bo->md->release();
+ 	} else {
+-		fPoolBytes -= bo->md->getLength();
+-		sweet_pool_release(bo->md, bo->pool_pa);
++		uint64_t len = bo->md->getLength();
++		if (!fClosing && bo->md->getRetainCount() <= 1 && len <= (16ULL << 20) &&
++		    fKeptCount < 32 && fKeptBytes + len <= (64ULL << 20)) {
++			fKept[fKeptCount].md = bo->md;
++			fKept[fKeptCount].pa = bo->pool_pa;
++			fKept[fKeptCount].len = len;
++			fKeptCount++;
++			fKeptBytes += len;
++		} else {
++			fPoolBytes -= len;
++			sweet_pool_release(bo->md, bo->pool_pa);
++		}
+ 	}
+ 	bzero(bo, sizeof(*bo));
+ }
+@@ -683,37 +720,83 @@ SweetAcceleratorUserClient::v2Method(uint32_t method, const void *in, uint32_t i
+ 		    rq->align_log2 < 12 || rq->align_log2 > 24 || rq->contiguous > 1) {
+ 			return kIOReturnBadArgument;
+ 		}
+-		/* memory XNU does not manage (sweet_gpu.c: no cacheable alias), zeroed through a WC kernel view */
+-		sweet_zombie_sweep();
+ 		uint64_t len = round_page_64(rq->bytes), pa = 0;
+-		if (!v2PoolAllowed(len)) {
+-			return kIOReturnNoMemory;
++		IOMemoryDescriptor *md = NULL;
++		bool reused = false;
++		IOLockLock(fLock);
++		for (uint32_t i = fKeptCount; i > 0; i--) {
++			if (fKept[i - 1].len == len) {
++				md = fKept[i - 1].md;
++				pa = fKept[i - 1].pa;
++				fKept[i - 1] = fKept[fKeptCount - 1];
++				fKeptCount--;
++				fKeptBytes -= len;
++				reused = true;
++				break;
++			}
+ 		}
+-		if (sweet_gpu_pool_alloc(len, &pa)) {
+-			return kIOReturnNoMemory;
++		if (!reused && !v2PoolAllowed(len)) {
++			v2DrainKept();
+ 		}
+-		IOMemoryDescriptor *md = IOMemoryDescriptor::withPhysicalAddress(pa, len, kIODirectionInOut);
+-		IOMemoryMap *km = md != NULL ? md->map(kIOMapWriteCombineCache) : NULL;
+-		if (km == NULL) {
+-			OSSafeReleaseNULL(md);
+-			sweet_gpu_pool_free(pa, len);
+-			return kIOReturnNoMemory;
++		IOLockUnlock(fLock);
++
++		if (!reused) {
++			sweet_zombie_sweep();
++			if (!v2PoolAllowed(len)) {
++				return kIOReturnNoMemory;
++			}
++			if (sweet_gpu_pool_alloc(len, &pa)) {
++				IOLockLock(fLock);
++				v2DrainKept();
++				IOLockUnlock(fLock);
++				if (sweet_gpu_pool_alloc(len, &pa)) {
++					return kIOReturnNoMemory;
++				}
++			}
++			md = IOMemoryDescriptor::withAddressRange((mach_vm_address_t)pa, (mach_vm_size_t)len,
++			    kIODirectionInOut | kIOMemoryTypePhysical64, TASK_NULL);
++			if (md == NULL) {
++				sweet_gpu_pool_free(pa, len);
++				return kIOReturnNoMemory;
++			}
++		}
++		void *kva = sweet_gpu_pool_kva(pa, len);
++		if (kva != NULL) {
++			bzero(kva, len);
++			__asm__ volatile ("dsb ishst" ::: "memory");
++		} else {
++			IOMemoryMap *km = md->map(kIOMapWriteCombineCache);
++			if (km == NULL) {
++				if (reused) {
++					IOLockLock(fLock);
++					fPoolBytes -= len;
++					IOLockUnlock(fLock);
++				}
++				md->release();
++				sweet_gpu_pool_free(pa, len);
++				return kIOReturnNoMemory;
++			}
++			bzero((void *)km->getVirtualAddress(), len);
++			__asm__ volatile ("dsb sy" ::: "memory");
++			km->release();
+ 		}
+-		bzero((void *)km->getVirtualAddress(), len);
+-		__asm__ volatile ("dsb sy" ::: "memory");
+-		km->release();
+ 		IOLockLock(fLock);
+ 		uint64_t h = 0;
+ 		IOReturn r = v2NewSlot(md, rq->bytes, false, &h);
+ 		if (r == kIOReturnSuccess) {
+ 			fBO[h - 1].pool_pa = pa;
+-			fPoolBytes += len;
+-			if (fPoolBytes > fPoolPeak) {
+-				fPoolPeak = fPoolBytes;
+-			}
+-			if ((fPoolBytes >> 25) != ((fPoolBytes - len) >> 25)) {
+-				IOLog("SWEET MTL: v2 %s holds %llu MB of GPU pool (%llu MB buffer)\n", fName, fPoolBytes >> 20, len >> 20);
++			if (!reused) {
++				fPoolBytes += len;
++				if (fPoolBytes > fPoolPeak) {
++					uint64_t oldPeak = fPoolPeak;
++					fPoolPeak = fPoolBytes;
++					if ((fPoolPeak >> 26) != (oldPeak >> 26)) {
++						IOLog("SWEET MTL: v2 %s peak %llu MB of GPU pool\n", fName, fPoolPeak >> 20);
++					}
++				}
+ 			}
++		} else if (reused) {
++			fPoolBytes -= len;
+ 		}
+ 		IOLockUnlock(fLock);
+ 		if (r != kIOReturnSuccess) {
+@@ -743,6 +826,11 @@ SweetAcceleratorUserClient::v2Method(uint32_t method, const void *in, uint32_t i
+ 		if (md == NULL) {
+ 			return kIOReturnBadArgument;
+ 		}
++		IOByteCount seg0 = 0;
++		addr64_t pa0 = md->getPhysicalSegment(0, &seg0, kIOMemoryMapperNone);
++		if (pa0 != 0) {
++			sweet_surface_mark_gpu_import(pa0);
++		}
+ 		IOLockLock(fLock);
+ 		uint64_t h = 0;
+ 		IOReturn r = v2NewSlot(md, rq->bytes, true, &h);
+@@ -771,7 +859,7 @@ SweetAcceleratorUserClient::v2Method(uint32_t method, const void *in, uint32_t i
+ 		} else if (rq->iova < fWinBase || rq->iova + bo->bytes > fWinBase + fWinSize || rq->iova + bo->bytes < rq->iova) {
+ 			r = kIOReturnBadArgument;
+ 		}
+-		/* the pages in 4K steps (16K VM pages, any 4K-aligned import), mapped in pieces */
++		/* Map all 4K chunks first, then flush the GPU SMMU TLB once for the entire BO. */
+ 		for (uint64_t off = 0; r == kIOReturnSuccess && off < bo->bytes;) {
+ 			uint32_t n = 0;
+ 			uint64_t start = off;
+@@ -784,11 +872,12 @@ SweetAcceleratorUserClient::v2Method(uint32_t method, const void *in, uint32_t i
+ 				}
+ 				fPageBuf[n] = pa;
+ 			}
+-			if (r == kIOReturnSuccess && sweet_gpu_map_at(rq->iova + start, fPageBuf, n)) {
++			if (r == kIOReturnSuccess && sweet_gpu_map_at_noflush(rq->iova + start, fPageBuf, n)) {
+ 				r = kIOReturnNoResources;
+ 			}
+ 		}
+ 		if (r == kIOReturnSuccess) {
++			sweet_gpu_tlb_flush();
+ 			bo->iova = rq->iova;
+ 			rp->iova = rq->iova;
+ 		} else if (bo != NULL && bo->iova == 0 && r != kIOReturnBadArgument && r != kIOReturnBusy) {
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+index 668fb3a..93fc4fb 100644
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -48,6 +48,8 @@ int sweet_gpu_present(int slot, uintptr_t kva, uint32_t offset, uint32_t w, uint
+ 	uint32_t fb_pitch, uint32_t corner_radius, uint32_t *out_dx, uint32_t *out_dy,
+ 	uint32_t *out_dw, uint32_t *out_dh);
+ void sweet_gpu_panel_stride(uint32_t stride);
++void sweet_gpu_panel_fb0(void);
++bool sweet_gpu_te_phase(uint64_t now, uint64_t *last_te_abs, uint64_t *period_abs);
+ extern int sweet_display_fit_x, sweet_display_fit_y, sweet_display_fit_w, sweet_display_fit_h;
+ extern volatile uint32_t sweet_backlight_alpha;
+ }
+@@ -78,6 +80,8 @@ enum {
+ 	kSweetFBIsMainDisplay           = 18,
+ 	kSweetFBGetDotPitch             = 28,
+ 	kSweetFBNotifications           = 72,
++	kSweetFBGetCurrentAbsoluteTime  = 77,
++	kSweetFBGetBlock                = 79,
+ };
+ 
+ #define SWEET_FB_SWAP_REC_SIZE          0x46c
+@@ -114,6 +118,7 @@ class AppleCLCD : public IOMobileFramebuffer {
+ 	uint64_t            fVsyncCount;
+ 	uint64_t            fNextVsync;     /* absolute deadline of the next tick */
+ 	uint64_t            fVsyncAbs;      /* tick period in absolute time units */
++	uint64_t            fLastTE;        /* last monotonic TE timestamp sent to CA */
+ 	uint64_t            fStatSwaps, fStatPresents, fStatPresentAbs;
+ 
+ 	static void vsyncFired(OSObject *owner, IOTimerEventSource *sender);
+@@ -251,14 +256,48 @@ AppleCLCD::start(IOService *provider)
+ 		IOLog("SWEET FB: no vsync timer\n");
+ 		return false;
+ 	}
+-	uint32_t hz = 10;
++	uint32_t hz = 60;
+ 	PE_parse_boot_argn("sweetfb_hz", &hz, sizeof(hz));
+ 	fFlushTicks = (hz == 0 || hz >= 60) ? 1 : 60 / hz;
+ 	fVsync->setTimeoutUS(SWEET_FB_VSYNC_US);
+ 
+ 	setProperty(kIOUserClientClassKey, "IOMobileFramebufferUserClient");
+ 	setProperty("external", false);
++	setProperty("NormalMode", kOSBooleanTrue);
+ 	setProperty("DisplayPipePlaneBaseAlignment", 64ULL, 32);
++	{
++		OSDictionary *timing = OSDictionary::withCapacity(4);
++		OSArray *timings = OSArray::withCapacity(1);
++		if (timing != NULL && timings != NULL) {
++			OSNumber *tid = OSNumber::withNumber(0ULL, 32);
++			OSNumber *rr = OSNumber::withNumber(60ULL << 16, 32);
++			if (tid != NULL) { timing->setObject("ID", tid); tid->release(); }
++			if (rr != NULL) { timing->setObject("RefreshRate", rr); rr->release(); }
++			timings->setObject(timing);
++			setProperty("TimingElements", timings);
++		}
++		OSSafeReleaseNULL(timing);
++		OSSafeReleaseNULL(timings);
++
++		OSDictionary *color = OSDictionary::withCapacity(5);
++		OSArray *colors = OSArray::withCapacity(1);
++		if (color != NULL && colors != NULL) {
++			OSNumber *cid = OSNumber::withNumber(0ULL, 32);
++			OSString *enc = OSString::withCString("BGRA");
++			OSNumber *bpc = OSNumber::withNumber(8ULL, 32);
++			OSNumber *dr = OSNumber::withNumber(1ULL, 32);
++			OSNumber *cs = OSNumber::withNumber(0ULL, 32);
++			if (cid != NULL) { color->setObject("ID", cid); cid->release(); }
++			if (enc != NULL) { color->setObject("PixelEncoding", enc); enc->release(); }
++			if (bpc != NULL) { color->setObject("BitsPerComponent", bpc); bpc->release(); }
++			if (dr != NULL) { color->setObject("DynamicRange", dr); dr->release(); }
++			if (cs != NULL) { color->setObject("ColorSpace", cs); cs->release(); }
++			colors->setObject(color);
++			setProperty("ColorElements", colors);
++		}
++		OSSafeReleaseNULL(color);
++		OSSafeReleaseNULL(colors);
++	}
+ 	gMainFB = this;
+ 	registerService();
+ 	IOLog("SWEET FB: AppleCLCD %ux%u stride %u at 0x%llx, default surface %u, presented as %ux%u (direct=%d)\n",
+@@ -283,9 +322,32 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+ 		nanoseconds_to_absolutetime(SWEET_FB_VSYNC_US * 1000ULL, &fb->fVsyncAbs);
+ 		fb->fNextVsync = now;
+ 	}
+-	fb->fNextVsync += fb->fVsyncAbs;
+-	if (fb->fNextVsync <= now) {
+-		fb->fNextVsync = now + fb->fVsyncAbs;
++	uint64_t vsync_ts = now, period = fb->fVsyncAbs, te_abs = 0, te_period = 0;
++	if (fb->fFlushTicks == 1 && sweet_gpu_te_phase(now, &te_abs, &te_period)) {
++		period = te_period;
++		fb->fVsyncAbs = te_period;
++		if (now > te_abs && (now - te_abs) > (te_period - (te_period >> 3))) {
++			te_abs += te_period;
++		}
++		if (te_abs <= fb->fLastTE) {
++			te_abs = fb->fLastTE + period;
++		}
++		fb->fLastTE = te_abs;
++		vsync_ts = te_abs;
++		/* Wake ~200 us (3840 XO ticks) after the next physical panel TE edge. */
++		fb->fNextVsync = te_abs + period + 3840ULL;
++		if (fb->fNextVsync <= now + 1920ULL) {
++			fb->fNextVsync = now + period;
++		}
++	} else {
++		fb->fNextVsync += fb->fVsyncAbs;
++		if (fb->fNextVsync <= now) {
++			fb->fNextVsync = now + fb->fVsyncAbs;
++		}
++		if (vsync_ts <= fb->fLastTE) {
++			vsync_ts = fb->fLastTE + period;
++		}
++		fb->fLastTE = vsync_ts;
+ 	}
+ 	sender->wakeAtTime(fb->fNextVsync);
+ 	if ((count % 300) == 0) {
+@@ -302,14 +364,12 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+ 		fb->fStatPresentAbs = 0;
+ 	}
+ 	/*
+-	 * CA::WindowServer::IOMFBServer::vsync_callback(fb, a1, a2, a3, refcon): a1 only goes to kdebug, a2 is
+-	 * the vsync's host time and a2 + a3 the next one (a3 = the refresh period, also CA's CVTimeStamp
+-	 * videoRefreshPeriod). a3 was 0: CA saw every frame's deadline as already past.
++	 * CA::WindowServer::IOMFBServer::vsync_callback(fb, a1, a2, a3, refcon):
++	 * a2 + a3 are phase-locked to SDE INTF_1 hardware TE (59.88 Hz).
+ 	 */
+-	uint64_t period = fb->fVsyncAbs;
+ 	uint64_t values[6] = {
+ 		(uint32_t)count, (uint32_t)(count >> 32),
+-		(uint32_t)now, (uint32_t)(now >> 32),
++		(uint32_t)vsync_ts, (uint32_t)(vsync_ts >> 32),
+ 		(uint32_t)period, (uint32_t)(period >> 32),
+ 	};
+ 
+@@ -326,6 +386,9 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+ 			fb->fFadeStep = step + 1;
+ 		}
+ 		IOLockUnlock(fb->fLock);
++		if (step == 0 && fb->fGPU) {
++			sweet_gpu_panel_fb0();
++		}
+ 		if (step <= 6) {
+ 			for (uint32_t y = 0; y < fb->fHeight; y++) {
+ 				volatile uint32_t *row = (volatile uint32_t *)(fb->fPixels + (uint64_t)y * fb->fRowBytes);
+@@ -595,8 +658,12 @@ AppleCLCD::presentGPU(const uint8_t *rec)
+ 		IOLockUnlock(fLock);
+ 		IOLog("SWEET FB: frames now scaled to fit by the GPU (panel stride %u)\n", fRowBytes);
+ 	}
++	uintptr_t cleanKva = (!s->gpuImported || s->cpuDirty) ? s->kernelAddress() : 0;
++	if (cleanKva != 0) {
++		s->cpuDirty = false;
++	}
+ 	uint32_t dx = 0, dy = 0, dw = 0, dh = 0;
+-	int rc = sweet_gpu_present(slot, s->kernelAddress(), s->offset, s->width, s->height, s->bytesPerRow,
++	int rc = sweet_gpu_present(slot, cleanKva, s->offset, s->width, s->height, s->bytesPerRow,
+ 	    fRowBytes, fCornerRadius, &dx, &dy, &dw, &dh);
+ 	s->release();
+ 	if (rc) {
+@@ -789,6 +856,10 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
+ 	uint64_t out[2] = { 0, 0 };
+ 	uint32_t outCount = 0;
+ 
++	if (args->structureOutputDescriptor == NULL && args->structureOutput != NULL) {
++		bzero(args->structureOutput, args->structureOutputSize);
++	}
++
+ 	switch (selector) {
+ 	case kSweetFBGetLayerDefaultSurface:
+ 		out[0] = sweet_surface_port_in_task(fFB->fSurface, fTask);
+@@ -857,6 +928,20 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
+ 			IOLog("SWEET FB: display %s\n", off ? "off" : "on");
+ 		}
+ 		break;
++	case kSweetFBGetCurrentAbsoluteTime:
++		out[0] = mach_absolute_time();
++		outCount = 1;
++		break;
++	case kSweetFBGetBlock:
++		if (args->structureOutputDescriptor == NULL && args->structureOutput != NULL &&
++		    args->structureOutputSize >= 16) {
++			uint32_t *blk = (uint32_t *)args->structureOutput;
++			blk[0] = 1;
++			blk[1] = fFB->fLogicalW;
++			blk[2] = fFB->fLogicalH;
++			blk[3] = 60u << 16;
++		}
++		break;
+ 	case kSweetFBSwapWait:
+ 	default:
+ 		break;
+@@ -865,9 +950,6 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
+ 	for (uint32_t i = 0; i < args->scalarOutputCount; i++) {
+ 		args->scalarOutput[i] = i < outCount ? out[i] : 0;
+ 	}
+-	if (args->structureOutputDescriptor == NULL && args->structureOutput != NULL) {
+-		bzero(args->structureOutput, args->structureOutputSize);
+-	}
+ 	if (selector >= 64 || !(sweet_fb_logged & (1ULL << selector))) {
+ 		if (selector < 64) {
+ 			sweet_fb_logged |= 1ULL << selector;
+diff --git a/iokit/Kernel/arm/SweetKeyStore.cpp b/iokit/Kernel/arm/SweetKeyStore.cpp
+index 73d9267..5039e86 100644
+--- a/iokit/Kernel/arm/SweetKeyStore.cpp
++++ b/iokit/Kernel/arm/SweetKeyStore.cpp
+@@ -275,10 +275,20 @@ AppleKeyStoreUserClient::externalMethod(uint32_t selector, IOExternalMethodArgum
+ 		break;
+ 	}
+ 
+-	char name[32];
+-	proc_selfname(name, sizeof(name));
+-	IOLog("SWEET AKS: %s sel %u arg0 %llu in %u/%u out %u/%u -> 0x%x\n", name, selector,
+-	    arg0, in_scalars, in_struct, out_scalars, out_struct, ret);
++	static int aks_log = -1;
++	static uint32_t aks_logged;
++	if (aks_log < 0) {
++		int v = 0;
++		PE_parse_boot_argn("sweetakslog", &v, sizeof(v));
++		aks_log = v ? 1 : 0;
++	}
++	if (aks_log || aks_logged < 16) {
++		aks_logged++;
++		char name[32];
++		proc_selfname(name, sizeof(name));
++		IOLog("SWEET AKS: %s sel %u arg0 %llu in %u/%u out %u/%u -> 0x%x\n", name, selector,
++		    arg0, in_scalars, in_struct, out_scalars, out_struct, ret);
++	}
+ 	return ret;
+ }
+ #endif /* SWEET */
+diff --git a/iokit/Kernel/arm/SweetSurface.cpp b/iokit/Kernel/arm/SweetSurface.cpp
+index 6c2f4aa..e5de6e8 100644
+--- a/iokit/Kernel/arm/SweetSurface.cpp
++++ b/iokit/Kernel/arm/SweetSurface.cpp
+@@ -80,7 +80,7 @@ static uint32_t      sweet_surface_users[SWEET_SURFACE_MAX_ID];
+ static uint32_t      sweet_surface_next_id = 1;
+ static uint32_t      sweet_surface_creates_logged;
+ static uint64_t      sweet_surface_wired;       /* bytes of buffer surfaces */
+-#define SWEET_SURFACE_WIRED_MAX         (1536ull << 20)
++#define SWEET_SURFACE_WIRED_MAX         (2560ull << 20)
+ 
+ OSDefineMetaClassAndStructors(SweetSurface, OSObject);
+ 
+@@ -190,6 +190,22 @@ sweet_surface_copy(uint32_t id)
+ 	return s;
+ }
+ 
++void
++sweet_surface_mark_gpu_import(addr64_t first_pa)
++{
++	if (first_pa == 0 || sweet_surface_lock == NULL) {
++		return;
++	}
++	IOLockLock(sweet_surface_lock);
++	for (uint32_t id = 1; id < SWEET_SURFACE_MAX_ID; id++) {
++		SweetSurface *s = sweet_surface_table[id];
++		if (s != NULL && s->firstPA == first_pa) {
++			s->gpuImported = true;
++		}
++	}
++	IOLockUnlock(sweet_surface_lock);
++}
++
+ /* The table lock; the framebuffer may publish a surface before the root starts. */
+ static void
+ sweet_surface_init_lock(void)
+@@ -246,7 +262,9 @@ sweet_surface_create_physical(uint64_t phys, uint32_t width, uint32_t height,
+ 	s->elementWidth = s->elementHeight = 1;
+ 	s->pixelFormat = pixelFormat;
+ 	s->allocSize = (uint32_t)round_page(bytesPerRow * height);
+-	s->memory = IOMemoryDescriptor::withPhysicalAddress(phys, s->allocSize, kIODirectionInOut);
++	s->memory = IOMemoryDescriptor::withAddressRange((mach_vm_address_t)phys, s->allocSize,
++	    kIODirectionInOut | kIOMemoryTypePhysical64, TASK_NULL);
++	s->firstPA = phys;
+ 	s->mapCache = kIOMapWriteCombineCache;
+ 	if (s->memory == NULL || !sweet_surface_publish(s)) {
+ 		s->release();
+@@ -800,6 +818,9 @@ IOSurfaceRootUserClient::create(IOExternalMethodArguments *args)
+ 		} else {
+ 			bzero(mem->getBytesNoCopy(), s->allocSize);
+ 			s->memory = mem;
++			IOByteCount seg0 = 0;
++			s->firstPA = mem->getPhysicalSegment(0, &seg0, kIOMemoryMapperNone);
++			s->cpuDirty = true;
+ 			s->mapCache = kIOMapDefaultCache;
+ 			if (!sweet_surface_publish(s)) {
+ 				ret = kIOReturnNoResources;
+@@ -988,13 +1009,16 @@ sweet_surface_held(IOLock *lock, OSArray *refs, uint32_t id)
+ }
+ 
+ IOReturn
+-IOSurfaceRootUserClient::trapLock(void *id, __unused void *options, void *seedOut,
++IOSurfaceRootUserClient::trapLock(void *id, void *options, void *seedOut,
+     void *, void *, void *)
+ {
+ 	SweetSurface *s = sweet_surface_held(fLock, fRefs, (uint32_t)(uintptr_t)id);
+ 	if (s == NULL) {
+ 		return kIOReturnNotFound;
+ 	}
++	if (!((uintptr_t)options & kIOSurfaceLockReadOnly)) {
++		s->cpuDirty = true;
++	}
+ 	IOReturn ret = sweet_surface_seed_out(s, seedOut, false);
+ 	s->release();
+ 	return ret;
+@@ -1008,8 +1032,11 @@ IOSurfaceRootUserClient::trapUnlock(void *id, void *options, void *seedOut,
+ 	if (s == NULL) {
+ 		return kIOReturnNotFound;
+ 	}
+-	IOReturn ret = sweet_surface_seed_out(s, seedOut,
+-	    !((uintptr_t)options & kIOSurfaceLockReadOnly));
++	bool wrote = !((uintptr_t)options & kIOSurfaceLockReadOnly);
++	if (wrote) {
++		s->cpuDirty = true;
++	}
++	IOReturn ret = sweet_surface_seed_out(s, seedOut, wrote);
+ 	s->release();
+ 	return ret;
+ }
+diff --git a/iokit/Kernel/arm/SweetSurface.h b/iokit/Kernel/arm/SweetSurface.h
+index 4ba58dc..dd320f2 100644
+--- a/iokit/Kernel/arm/SweetSurface.h
++++ b/iokit/Kernel/arm/SweetSurface.h
+@@ -40,6 +40,9 @@ public:
+ 	IOOptionBits              mapCache;     /* cache mode for user mappings */
+ 	IOBufferMemoryDescriptor *state;        /* shared state page, read-only for users */
+ 	IOMemoryMap              *kernelMap;    /* lazily created for kernel copies */
++	addr64_t                  firstPA;      /* first physical page for fast GPU import lookup */
++	bool                      gpuImported;  /* imported into Adreno: rendered via DMA */
++	bool                      cpuDirty;     /* written via CPU lock/create since last present */
+ 
+ 	bool init() APPLE_KEXT_OVERRIDE { return OSObject::init(); }
+ 	void free() APPLE_KEXT_OVERRIDE;
+@@ -62,5 +65,8 @@ SweetSurface *sweet_surface_create_physical(uint64_t phys, uint32_t width,
+ /* Send right for the surface in task (IOSurfaceLookupFromMachPort). */
+ mach_port_name_t sweet_surface_port_in_task(SweetSurface *surface, task_t task);
+ 
++/* Mark any surface backed by first_pa as GPU-imported (skips redundant CPU dcache cleans on present). */
++void sweet_surface_mark_gpu_import(addr64_t first_pa);
++
+ #endif /* SWEET */
+ #endif /* _SWEET_SURFACE_H */
+diff --git a/iokit/Kernel/arm/hid/SweetHID.cpp b/iokit/Kernel/arm/hid/SweetHID.cpp
+index a9f0b6c..d824a3f 100644
+--- a/iokit/Kernel/arm/hid/SweetHID.cpp
++++ b/iokit/Kernel/arm/hid/SweetHID.cpp
+@@ -287,7 +287,7 @@ IOHIDEventService::getProductID()
+ UInt32
+ IOHIDEventService::getReportInterval()
+ {
+-	return 10000;	/* us */
++	return 8333;	/* us (120 Hz digitizer pacing) */
+ }
+ 
+ IOReturn
+@@ -367,6 +367,7 @@ class SweetHIDTouch : public IOHIDEventService {
+ public:
+ 	virtual bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
+ 	void touch(int finger, bool down, int x, int y);
++	void touchFrame(uint64_t scan_ts, uint32_t active_mask, const int *xs, const int *ys);
+ protected:
+ 	virtual UInt32 getPrimaryUsagePage() APPLE_KEXT_OVERRIDE { return kHIDPage_Digitizer; }
+ 	virtual UInt32 getPrimaryUsage() APPLE_KEXT_OVERRIDE { return kHIDUsage_Dig_TouchScreen; }
+@@ -375,6 +376,8 @@ private:
+ 	IOLock *fLock;
+ 	int fLogicalW, fLogicalH, fOffX, fOffY;
+ 	uint32_t fCornerRadius;
++	int fLog;
++	uint32_t fLoggedCount;
+ 	bool fDown[SWEET_TOUCH_FINGERS];
+ 	bool fEdge[SWEET_TOUCH_FINGERS];
+ 	IOFixed fX[SWEET_TOUCH_FINGERS];
+@@ -450,6 +453,7 @@ SweetHIDTouch::start(IOService *provider)
+ 	if (fCornerRadius > SWEET_DISPLAY_CORNER_MAX) {
+ 		fCornerRadius = SWEET_DISPLAY_CORNER_MAX;
+ 	}
++	PE_parse_boot_argn("sweethidlog", &fLog, sizeof(fLog));
+ 	/* The digitizer covers the main display (backboardd maps it 1:1). */
+ 	setProperty("DisplayIntegrated", kOSBooleanTrue);
+ 	setProperty("SurfaceWidth", (unsigned long long)(68 << 16), 32);	/* mm, 16.16 */
+@@ -514,8 +518,8 @@ SweetHIDTouch::touch(int finger, bool down, int x, int y)
+ 		return;
+ 	}
+ 	if (!was && down) {
+-		fEdge[finger] = x < SWEET_TOUCH_EDGE_PX || x > SWEET_PANEL_W - 1 - SWEET_TOUCH_EDGE_PX ||
+-		    y < SWEET_TOUCH_EDGE_PX || y > SWEET_PANEL_H - 1 - SWEET_TOUCH_EDGE_PX;
++		fEdge[finger] = x < fitX + SWEET_TOUCH_EDGE_PX || x > fitX + fitW - 1 - SWEET_TOUCH_EDGE_PX ||
++		    y < fitY + SWEET_TOUCH_EDGE_PX || y > fitY + fitH - 1 - SWEET_TOUCH_EDGE_PX;
+ 	}
+ 
+ 	collection = IOHIDEvent::digitizerEvent(now, 0, kIOHIDDigitizerTransducerTypeHand, false, 0, 0, 0);
+@@ -572,7 +576,8 @@ SweetHIDTouch::touch(int finger, bool down, int x, int y)
+ 	collection->setIntegerValue(kIOHIDEventFieldDigitizerButtonMask, any ? 1 : 0);
+ 	IOLockUnlock(fLock);
+ 
+-	if (was != down) {
++	if (was != down && (fLog || fLoggedCount < 16)) {
++		fLoggedCount++;
+ 		IOLog("SWEET HID: touch %d %s at %d,%d%s\n", finger, down ? "down" : "up", x, y,
+ 		    fEdge[finger] ? " edge" : "");
+ 	}
+@@ -580,6 +585,150 @@ SweetHIDTouch::touch(int finger, bool down, int x, int y)
+ 	collection->release();
+ }
+ 
++void
++SweetHIDTouch::touchFrame(uint64_t scan_ts, uint32_t active_mask, const int *xs, const int *ys)
++{
++	uint64_t now = scan_ts ? scan_ts : mach_absolute_time();
++
++	IOLockLock(fLock);
++	int fitX = sweet_display_fit_x, fitY = sweet_display_fit_y;
++	int fitW = sweet_display_fit_w, fitH = sweet_display_fit_h;
++	if (fitW <= 0 || fitH <= 0) {
++		fitX = fitY = 0;
++		fitW = SWEET_PANEL_W;
++		fitH = SWEET_PANEL_H;
++	}
++	int ext = fCornerRadius ? (int)sweet_display_corner_extent(fCornerRadius) : 0;
++
++	bool nextDown[SWEET_TOUCH_FINGERS];
++	bool changed[SWEET_TOUCH_FINGERS];
++	bool moved[SWEET_TOUCH_FINGERS];
++	IOFixed nextX[SWEET_TOUCH_FINGERS];
++	IOFixed nextY[SWEET_TOUCH_FINGERS];
++	bool anyChanged = false, anyDown = false;
++	int leadFinger = -1;
++
++	for (int i = 0; i < SWEET_TOUCH_FINGERS; i++) {
++		bool was = fDown[i];
++		bool down = ((active_mask >> i) & 1u) != 0;
++		int x = xs ? xs[i] : 0;
++		int y = ys ? ys[i] : 0;
++		x = x < 0 ? 0 : (x > SWEET_PANEL_W - 1 ? SWEET_PANEL_W - 1 : x);
++		y = y < 0 ? 0 : (y > SWEET_PANEL_H - 1 ? SWEET_PANEL_H - 1 : y);
++
++		if (!was && down && ext > 0) {
++			int cx = x - fitX < ext ? x - fitX : (fitX + fitW - 1 - x < ext ? fitX + fitW - 1 - x : -1);
++			int cy = y - fitY < ext ? y - fitY : (fitY + fitH - 1 - y < ext ? fitY + fitH - 1 - y : -1);
++			if (cx >= 0 && cy >= 0 && !sweet_display_corner_point_visible((uint32_t)cx, (uint32_t)cy, fCornerRadius)) {
++				down = false;
++			}
++		}
++
++		IOFixed nx = fX[i], ny = fY[i];
++		if (down) {
++			if (sweet_display_fit_w > 0 && sweet_display_fit_h > 0) {
++				int64_t fx = ((int64_t)(x - fitX) * 65536 + fitW / 2) / fitW;
++				nx = (IOFixed)(fx < 0 ? 0 : (fx > 0xffff ? 0xffff : fx));
++				int64_t fy = ((int64_t)(y - fitY) * 65536 + fitH / 2) / fitH;
++				ny = (IOFixed)(fy < 0 ? 0 : (fy > 0xffff ? 0xffff : fy));
++			} else {
++				nx = (IOFixed)(((int64_t)(x + fOffX) << 16) / fLogicalW);
++				ny = (IOFixed)(((int64_t)(y + fOffY) << 16) / fLogicalH);
++			}
++		}
++
++		bool mv = down && was && (nx != fX[i] || ny != fY[i]);
++		bool ch = (was != down) || mv;
++		if (!was && down) {
++			fEdge[i] = x < fitX + SWEET_TOUCH_EDGE_PX || x > fitX + fitW - 1 - SWEET_TOUCH_EDGE_PX ||
++			    y < fitY + SWEET_TOUCH_EDGE_PX || y > fitY + fitH - 1 - SWEET_TOUCH_EDGE_PX;
++		}
++		if (was != down && (fLog || fLoggedCount < 16)) {
++			fLoggedCount++;
++			IOLog("SWEET HID: touch %d %s at %d,%d%s\n", i, down ? "down" : "up", x, y,
++			    fEdge[i] ? " edge" : "");
++		}
++		nextDown[i] = down;
++		changed[i] = ch;
++		moved[i] = mv;
++		nextX[i] = nx;
++		nextY[i] = ny;
++		if (ch) {
++			anyChanged = true;
++			if (leadFinger < 0) {
++				leadFinger = i;
++			}
++		}
++		if (down) {
++			anyDown = true;
++			if (leadFinger < 0) {
++				leadFinger = i;
++			}
++		}
++	}
++
++	if (!anyChanged) {
++		IOLockUnlock(fLock);
++		return;
++	}
++
++	IOHIDEvent *collection = IOHIDEvent::digitizerEvent(now, 0, kIOHIDDigitizerTransducerTypeHand, false, 0, 0, 0);
++	if (!collection) {
++		IOLockUnlock(fLock);
++		return;
++	}
++	collection->setIntegerValue(kIOHIDEventFieldDigitizerCollection, TRUE);
++
++	UInt32 cmask = 0;
++	for (int i = 0; i < SWEET_TOUCH_FINGERS; i++) {
++		bool was = fDown[i];
++		bool d = nextDown[i];
++		if (!d && !was) {
++			continue;
++		}
++		IOHIDEvent *child = IOHIDEvent::digitizerEvent(now, (UInt32)i + 2, kIOHIDDigitizerTransducerTypeFinger,
++		    d, d ? 1 : 0, nextX[i], nextY[i]);
++		if (!child) {
++			continue;
++		}
++		UInt32 mask = fEdge[i] ? kIOHIDDigitizerEventFromEdgeTip : 0;
++		if (was != d) {
++			mask |= kIOHIDDigitizerEventTouch | kIOHIDDigitizerEventRange;
++		}
++		if (moved[i]) {
++			mask |= kIOHIDDigitizerEventPosition;
++		}
++		if (!was && d) {
++			mask |= kIOHIDDigitizerEventIdentity;
++		}
++		child->setIntegerValue(kIOHIDEventFieldDigitizerIndex, i);
++		child->setIntegerValue(kIOHIDEventFieldDigitizerIdentity, i + 2);
++		child->setIntegerValue(kIOHIDEventFieldDigitizerTouch, d);
++		child->setIntegerValue(kIOHIDEventFieldDigitizerEventMask, mask);
++		collection->appendChild(child);
++		child->release();
++		cmask |= mask;
++		fDown[i] = d;
++		if (d) {
++			fX[i] = nextX[i];
++			fY[i] = nextY[i];
++		}
++	}
++	if (leadFinger < 0) {
++		leadFinger = 0;
++	}
++	collection->setFixedValue(kIOHIDEventFieldDigitizerX, nextX[leadFinger]);
++	collection->setFixedValue(kIOHIDEventFieldDigitizerY, nextY[leadFinger]);
++	collection->setIntegerValue(kIOHIDEventFieldDigitizerRange, anyDown);
++	collection->setIntegerValue(kIOHIDEventFieldDigitizerTouch, anyDown);
++	collection->setIntegerValue(kIOHIDEventFieldDigitizerEventMask, cmask);
++	collection->setIntegerValue(kIOHIDEventFieldDigitizerButtonMask, anyDown ? 1 : 0);
++	IOLockUnlock(fLock);
++
++	dispatchEvent(collection);
++	collection->release();
++}
++
+ /* key: 0 power (side button), 1 volume up, 2 volume down, 3 home */
+ extern "C" void
+ sweet_hid_key(int key, int down)
+@@ -601,3 +750,11 @@ sweet_hid_touch(int finger, int down, int x, int y)
+ 		gSweetTouch->touch(finger, down != 0, x, y);
+ 	}
+ }
++
++extern "C" void
++sweet_hid_touch_frame(uint64_t scan_ts, uint32_t active_mask, const int *xs, const int *ys)
++{
++	if (gSweetTouch) {
++		gSweetTouch->touchFrame(scan_ts, active_mask, xs, ys);
++	}
++}
+diff --git a/makedefs/MakeInc.def b/makedefs/MakeInc.def
+index e9c9abf..338d924 100644
+--- a/makedefs/MakeInc.def
++++ b/makedefs/MakeInc.def
+@@ -64,7 +64,7 @@ MACHINE_FLAGS_ARM64_BCM2837 = -DARM64_BOARD_CONFIG_BCM2837
+ # The CPU, not just the architecture: with -arch arm64 Apple clang's default CPU is an Apple core,
+ # and -march=armv8.2-a+crypto kept its features, so clang vectorized XORs into EOR3 (FEAT_SHA3),
+ # an undefined instruction on the A76/A55 (panic in a6_blit_ib). Cortex-A55 = the ISA both clusters share.
+-MACHINE_FLAGS_ARM64_SWEET = -DARM64_BOARD_CONFIG_SWEET                -mcpu=cortex-a55+crypto
++MACHINE_FLAGS_ARM64_SWEET = -DARM64_BOARD_CONFIG_SWEET                -mcpu=cortex-a76+crypto
+ 
+ 
+ #
+diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
+index 24f1abc..3121950 100644
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -1882,7 +1882,7 @@ sleh_irq(arm_saved_state_t *state)
+ 		cpu_signal_handler();
+ 	} else {
+ 		sleh_interrupt_handler_prologue(state, DBG_INTR_TYPE_OTHER);
+-		if (cdp->interrupt_handler) {
++		if (!sweet_gic_dispatch_spi(intid) && cdp->interrupt_handler) {
+ 			cdp->interrupt_handler(cdp->interrupt_target,
+ 			    cdp->interrupt_refCon,
+ 			    cdp->interrupt_nub,
+diff --git a/osfmk/kern/sched_clutch.c b/osfmk/kern/sched_clutch.c
+index 3657d83..c69ea74 100644
+--- a/osfmk/kern/sched_clutch.c
++++ b/osfmk/kern/sched_clutch.c
+@@ -49,6 +49,10 @@
+ #if CONFIG_SCHED_EDGE
+ #include <kern/sched_amp_common.h>
+ #endif /* CONFIG_SCHED_EDGE */
++#if defined(SWEET)
++#include <kern/thread_group.h>
++#include <pexpert/pexpert.h>
++#endif /* SWEET */
+ 
+ #if CONFIG_SCHED_CLUTCH
+ 
+@@ -131,6 +135,10 @@ static int sched_edge_iterate_clusters_ordered(processor_set_t, uint64_t, int);
+ 
+ /* Global indicating the maximum number of clusters on the current platform */
+ static int sched_edge_max_clusters = 0;
++#if defined(SWEET)
++static int sweet_edge_p_cluster = -1;
++static int sweet_edge_e_cluster = -1;
++#endif /* SWEET */
+ #endif /* CONFIG_SCHED_EDGE */
+ 
+ /* Helper debugging routines */
+@@ -1136,7 +1144,14 @@ sched_clutch_bucket_group_init(
+ 
+ 	os_atomic_store(&clutch_bucket_group->scbg_timeshare_tick, 0, relaxed);
+ 	os_atomic_store(&clutch_bucket_group->scbg_pri_shift, INT8_MAX, relaxed);
+-	os_atomic_store(&clutch_bucket_group->scbg_preferred_cluster, pset0.pset_cluster_id, relaxed);
++	uint32_t pref_cluster = pset0.pset_cluster_id;
++#if CONFIG_SCHED_EDGE && defined(SWEET)
++	if (sweet_edge_p_cluster >= 0 && sweet_edge_e_cluster >= 0) {
++		pref_cluster = (bucket <= TH_BUCKET_SHARE_DF) ?
++		    (uint32_t)sweet_edge_p_cluster : (uint32_t)sweet_edge_e_cluster;
++	}
++#endif /* CONFIG_SCHED_EDGE && SWEET */
++	os_atomic_store(&clutch_bucket_group->scbg_preferred_cluster, pref_cluster, relaxed);
+ 	/*
+ 	 * All thread groups should be initialized to be interactive; this allows the newly launched
+ 	 * thread groups to fairly compete with already running thread groups.
+@@ -4778,6 +4793,9 @@ sched_edge_tg_preferred_cluster_change(struct thread_group *tg, uint32_t *tg_buc
+ 
+ 	for (uint32_t cluster_id = 0; cluster_id < sched_edge_max_clusters; cluster_id++) {
+ 		processor_set_t pset = pset_array[cluster_id];
++		if (pset == NULL) {
++			continue;
++		}
+ 		spl_t s = splsched();
+ 		pset_lock(pset);
+ 		/*
+@@ -4849,6 +4867,9 @@ sched_edge_cpu_init_completed(void)
+ 	spl_t s = splsched();
+ 	for (int src_cluster_id = 0; src_cluster_id < sched_edge_max_clusters; src_cluster_id++) {
+ 		processor_set_t src_pset = pset_array[src_cluster_id];
++		if (src_pset == NULL) {
++			continue;
++		}
+ 		pset_lock(src_pset);
+ 
+ 		/* For each cluster, set all its outgoing edge parameters */
+@@ -4857,6 +4878,9 @@ sched_edge_cpu_init_completed(void)
+ 				continue;
+ 			}
+ 			processor_set_t dst_pset = pset_array[dst_cluster_id];
++			if (dst_pset == NULL) {
++				continue;
++			}
+ 			if (src_pset->pset_type == dst_pset->pset_type) {
+ 				/* P->P/E->E edge config */
+ 				bitmap_clear(src_pset->foreign_psets, dst_cluster_id);
+@@ -4886,6 +4910,41 @@ sched_edge_cpu_init_completed(void)
+ 		pset_unlock(src_pset);
+ 	}
+ 	splx(s);
++#if defined(SWEET)
++	int p_id = -1, e_id = -1;
++	for (int cid = 0; cid < sched_edge_max_clusters; cid++) {
++		processor_set_t pset = pset_array[cid];
++		if (pset == NULL || pset->online_processor_count == 0) {
++			continue;
++		}
++		if (pset->pset_type == CLUSTER_TYPE_P && p_id < 0) {
++			p_id = cid;
++		} else if (pset->pset_type == CLUSTER_TYPE_E && e_id < 0) {
++			e_id = cid;
++		}
++	}
++	if (p_id >= 0 && e_id >= 0) {
++		sweet_edge_p_cluster = p_id;
++		sweet_edge_e_cluster = e_id;
++		uint32_t pref[TH_BUCKET_SCHED_MAX];
++		for (sched_bucket_t b = TH_BUCKET_FIXPRI; b < TH_BUCKET_SCHED_MAX; b++) {
++			pref[b] = (b <= TH_BUCKET_SHARE_DF) ? (uint32_t)p_id : (uint32_t)e_id;
++		}
++		struct thread_group **tgs = kalloc_type(struct thread_group *, 256, Z_WAITOK | Z_ZERO);
++		if (tgs != NULL) {
++			uint32_t ntg = thread_group_copy_all(tgs, 256);
++			for (uint32_t i = 0; i < ntg; i++) {
++				sched_edge_tg_preferred_cluster_change(tgs[i], pref,
++				    SCHED_PERFCONTROL_PREFERRED_CLUSTER_MIGRATE_RUNNING |
++				    SCHED_PERFCONTROL_PREFERRED_CLUSTER_MIGRATE_RUNNABLE);
++				thread_group_release(tgs[i]);
++			}
++			kfree_type(struct thread_group *, 256, tgs);
++			kprintf("SWEET SCHED: Edge AMP active (E=pset%d P=pset%d, migrated %u thread groups)\n",
++			    e_id, p_id, ntg);
++		}
++	}
++#endif /* SWEET */
+ }
+ 
+ static bool
+diff --git a/osfmk/kern/sched_prim.c b/osfmk/kern/sched_prim.c
+index 8e29586..3e26d72 100644
+--- a/osfmk/kern/sched_prim.c
++++ b/osfmk/kern/sched_prim.c
+@@ -5246,7 +5246,13 @@ no_available_cpus:
+ 		/* there shouldn't be a pending AST if the processor is idle */
+ 		assert((idle_primary_map & pset->pending_AST_URGENT_cpu_mask) == 0);
+ 
++#if __AMP__ && defined(SWEET)
++		/* Prefer cpu7 (2.956 GHz Prime A76, highest bit in P-cluster) when idle. */
++		int cpuid = (pset->pset_cluster_type == PSET_AMP_P) ?
++		    bit_first(idle_primary_map) : lsb_first(idle_primary_map);
++#else
+ 		int cpuid = lsb_first(idle_primary_map);
++#endif
+ 		if (cpuid >= 0) {
+ 			processor = processor_array[cpuid];
+ 			return processor;
+@@ -8308,7 +8314,12 @@ try_again:
+ 		primary_map = bit_ror64(primary_map, 1);
+ 	}
+ 
++#if __AMP__ && defined(SWEET)
++	int rotid = (!avoid_cpu0 && pset->pset_cluster_type == PSET_AMP_P) ?
++	    bit_first(primary_map) : lsb_first(primary_map);
++#else
+ 	int rotid = lsb_first(primary_map);
++#endif
+ 	if (rotid >= 0) {
+ 		int cpuid = avoid_cpu0 ? ((rotid + 1) & 63) : rotid;
+ 
+diff --git a/osfmk/kern/thread_group.c b/osfmk/kern/thread_group.c
+index f04b813..45bb18f 100644
+--- a/osfmk/kern/thread_group.c
++++ b/osfmk/kern/thread_group.c
+@@ -542,6 +542,25 @@ thread_group_find_by_id_and_retain(uint64_t id)
+ 	return result;
+ }
+ 
++uint32_t
++thread_group_copy_all(struct thread_group **out, uint32_t cap)
++{
++	struct thread_group *tg;
++	uint32_t n = 0;
++
++	lck_mtx_lock(&tg_lock);
++	qe_foreach_element(tg, &tg_queue, tg_queue_chain) {
++		if (n >= cap) {
++			break;
++		}
++		if (thread_group_retain_try(tg)) {
++			out[n++] = tg;
++		}
++	}
++	lck_mtx_unlock(&tg_lock);
++	return n;
++}
++
+ /*
+  * Add new reference to specified thread group
+  */
+diff --git a/osfmk/kern/thread_group.h b/osfmk/kern/thread_group.h
+index d2d12f3..274a515 100644
+--- a/osfmk/kern/thread_group.h
++++ b/osfmk/kern/thread_group.h
+@@ -145,6 +145,7 @@ void             thread_resolve_and_enforce_thread_group_hierarchy_if_needed(thr
+ 
+ #if XNU_KERNEL_PRIVATE
+ void            thread_group_vm_add(void);
++uint32_t        thread_group_copy_all(struct thread_group **out, uint32_t cap);
+ #endif
+ 
+ __END_DECLS
+diff --git a/pexpert/arm/pe_fiq.c b/pexpert/arm/pe_fiq.c
+index 6089db9..6dea53b 100644
+--- a/pexpert/arm/pe_fiq.c
++++ b/pexpert/arm/pe_fiq.c
+@@ -8,6 +8,7 @@
+ #include <kern/clock.h>
+ #include <mach/mach_time.h>
+ #include <machine/atomic.h>
++#include <os/atomic_private.h>
+ #include <machine/machine_routines.h>
+ #include <pexpert/device_tree.h>
+ #include <pexpert/arm64/board_config.h>
+@@ -44,8 +45,111 @@ _gic_write32(vm_offset_t addr, uint32_t value)
+ 	*((volatile uint32_t *) addr) = value;
+ }
+ 
++#if defined(SWEET)
++static void
++_gic_write64(vm_offset_t addr, uint64_t value)
++{
++	*((volatile uint64_t *) addr) = value;
++}
++#endif
++
+ #define gicd_read32(offset) (_gic_read32(gicd_base + (offset)))
+ #define gicd_write32(offset, data) (_gic_write32(gicd_base + (offset), (data)))
++#if defined(SWEET)
++#define gicd_write64(offset, data) (_gic_write64(gicd_base + (offset), (data)))
++
++#define SWEET_SPI_BASE  32u
++#define SWEET_SPI_MAX   640u
++
++static struct {
++	sweet_irq_fn_t fn;
++	void *arg;
++} sweet_spi_table[SWEET_SPI_MAX];
++
++static void
++gicd_wait_rwp(void)
++{
++	while (gicd_read32(GICD_CTLR) & GICD_CTLR_RWP) {
++		;
++	}
++}
++
++void
++sweet_gic_mask_spi(unsigned int intid)
++{
++	if (gicd_base && intid >= SWEET_SPI_BASE && intid < SWEET_SPI_BASE + SWEET_SPI_MAX) {
++		gicd_write32(GICD_ICENABLER + 4u * (intid / 32u), 1u << (intid % 32u));
++		__builtin_arm_dsb(DSB_SY);
++	}
++}
++
++void
++sweet_gic_unmask_spi(unsigned int intid)
++{
++	if (gicd_base && intid >= SWEET_SPI_BASE && intid < SWEET_SPI_BASE + SWEET_SPI_MAX) {
++		gicd_write32(GICD_ISENABLER + 4u * (intid / 32u), 1u << (intid % 32u));
++		__builtin_arm_dsb(DSB_SY);
++	}
++}
++
++void
++sweet_gic_register_spi(unsigned int intid, int edge_rising, sweet_irq_fn_t fn, void *arg)
++{
++	if (!gicd_base || intid < SWEET_SPI_BASE || intid >= SWEET_SPI_BASE + SWEET_SPI_MAX) {
++		return;
++	}
++	unsigned int idx = intid - SWEET_SPI_BASE;
++	gicd_write32(GICD_ICENABLER + 4u * (intid / 32u), 1u << (intid % 32u));
++	gicd_wait_rwp();
++
++	sweet_spi_table[idx].arg = arg;
++	os_atomic_store(&sweet_spi_table[idx].fn, fn, release);
++	if (fn == NULL) {
++		return;
++	}
++
++	/* SecurityExtn=1: GICD_IGROUPR reads as 0 from NS; write all Group 1 NS bits. */
++	gicd_write32(GICD_IGROUPR + 4u * (intid / 32u), 0xFFFFFFFFu);
++
++	uint32_t pri_off = GICD_IPRIORITYR + 4u * (intid / 4u);
++	uint32_t pri_shift = 8u * (intid % 4u);
++	uint32_t pri = gicd_read32(pri_off);
++	pri = (pri & ~(0xFFu << pri_shift)) | (0xA0u << pri_shift);
++	gicd_write32(pri_off, pri);
++
++	uint32_t cfg_off = GICD_ICFGR + 4u * (intid / 16u);
++	uint32_t cfg_shift = 2u * (intid % 16u);
++	uint32_t cfg = gicd_read32(cfg_off);
++	cfg = (cfg & ~(3u << cfg_shift)) | ((edge_rising ? 2u : 0u) << cfg_shift);
++	gicd_write32(cfg_off, cfg);
++
++	/* Route SPI to cpu0 (MPIDR Aff=0). */
++	gicd_write64(GICD_IROUTER + 8ULL * (uint64_t)intid, 0ULL);
++	if (edge_rising) {
++		gicd_write32(GICD_ICPENDR + 4u * (intid / 32u), 1u << (intid % 32u));
++	}
++	gicd_wait_rwp();
++	gicd_write32(GICD_ISENABLER + 4u * (intid / 32u), 1u << (intid % 32u));
++	__builtin_arm_dsb(DSB_SY);
++}
++
++int
++sweet_gic_dispatch_spi(unsigned int intid)
++{
++	if (intid >= SWEET_SPI_BASE && intid < SWEET_SPI_BASE + SWEET_SPI_MAX) {
++		unsigned int idx = intid - SWEET_SPI_BASE;
++		sweet_irq_fn_t fn = os_atomic_load(&sweet_spi_table[idx].fn, acquire);
++		if (fn != NULL) {
++			fn(sweet_spi_table[idx].arg);
++			return 1;
++		}
++	}
++	if (intid >= SWEET_SPI_BASE) {
++		sweet_gic_mask_spi(intid);
++	}
++	return 0;
++}
++#endif /* SWEET */
+ #define gicr_read32(offset) (_gic_read32(gicr_pe_base + (offset)))
+ #define gicr_write32(offset, data) (_gic_write32(gicr_pe_base + (offset), (data)))
+ #define gicr_read64(offset) (_gic_read64(gicr_pe_base + (offset)))
+diff --git a/pexpert/pexpert/arm64/SWEET.h b/pexpert/pexpert/arm64/SWEET.h
+index fdc987d..fdb4be2 100644
+--- a/pexpert/pexpert/arm64/SWEET.h
++++ b/pexpert/pexpert/arm64/SWEET.h
+@@ -13,15 +13,14 @@
+ #define _PEXPERT_ARM64_SWEET_H
+ 
+ #define NO_MONITOR                1
+-#define NO_ECORE                  1
++#define __ARM_AMP__               1
+ 
+ #define SWEET                     1
+ 
+ /*
+- * All eight cores (six A55 + two A76) as one homogeneous SMP cluster:
+- * cpus=N is clamped here. Same ISA level (ARMv8.2), 64-byte lines, PSCI
+- * CPU_ON; the scheduler does not know the A76s are faster (no AMP/P-E
+- * clusters yet).
++ * Eight ARMv8.2 DynamIQ cores across E + P clusters (SM8150-AC: 4x A55 E +
++ * 3x A76 P + 1x A76 Prime P; SM7150: 6x A55 E + 2x A76 P), 64-byte lines,
++ * PSCI CPU_ON, scheduled by XNU's AMP Edge Clutch scheduler.
+  */
+ #define SWEET_SMP_MAX_CPUS         8
+ 
+@@ -68,6 +67,13 @@
+ 
+ /* GICv3 register definitions; see GICv3 spec (Arm IHI 0069G) */
+ #define GICD_CTLR                 0x0
++#define GICD_IGROUPR              0x0080
++#define GICD_ISENABLER            0x0100
++#define GICD_ICENABLER            0x0180
++#define GICD_ICPENDR              0x0280
++#define GICD_IPRIORITYR           0x0400
++#define GICD_ICFGR                0x0c00
++#define GICD_IROUTER              0x6000
+ 
+ /* Non-secure view of GICD_CTLR (DS=0) */
+ #define GICD_CTLR_ENABLEGRP1      0x1
+diff --git a/pexpert/pexpert/arm64/board_config.h b/pexpert/pexpert/arm64/board_config.h
+index 88e524a..9ced551 100644
+--- a/pexpert/pexpert/arm64/board_config.h
++++ b/pexpert/pexpert/arm64/board_config.h
+@@ -102,10 +102,24 @@
+ 
+ #define MAX_L2_CLINE                   6
+ #define MAX_CPUS                       8
+-#define MAX_CPU_CLUSTERS               1
++#define MAX_CPU_CLUSTERS               2
+ 
+ #define CORE_NCTRS                     8 /* Placeholder; KPC is not enabled for this target */
+ 
++#ifndef ASSEMBLER
++#ifdef __cplusplus
++extern "C" {
++#endif
++typedef void (*sweet_irq_fn_t)(void *arg);
++void sweet_gic_register_spi(unsigned int intid, int edge_rising, sweet_irq_fn_t fn, void *arg);
++void sweet_gic_mask_spi(unsigned int intid);
++void sweet_gic_unmask_spi(unsigned int intid);
++int  sweet_gic_dispatch_spi(unsigned int intid);
++#ifdef __cplusplus
++}
++#endif
++#endif /* !ASSEMBLER */
++
+ #endif  /* ARM64_BOARD_CONFIG_SWEET */
+ 
+ #ifdef ARM64_BOARD_CONFIG_VMAPPLE

@@ -31,9 +31,17 @@ libc = "0.2"
 sha2 = { version = "0.10", features = ["asm"] }
 [profile.release]
 panic = "unwind"
-debug = 1
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = 0
 EOF
-if [ "$target" = ios ]; then triple=aarch64-apple-ios; else triple=aarch64-apple-darwin; fi
+if [ "$target" = ios ]; then
+	triple=aarch64-apple-ios
+	export CARGO_TARGET_AARCH64_APPLE_IOS_RUSTFLAGS="-C target-cpu=cortex-a76"
+else
+	triple=aarch64-apple-darwin
+fi
 NMB_FIXTURE_AIR=$OUT/runtime_examples.air NMB_FC_AIR=$OUT/function_constant.air IPHONEOS_DEPLOYMENT_TARGET=16.0 \
 	MACOSX_DEPLOYMENT_TARGET=14.0 cargo +1.98.0 build --release --manifest-path "$OUT/Cargo.toml" --target $triple \
 	--target-dir "$OUT/target" > "$OUT/build-$target.log" 2>&1 || { grep -E "^(error|warning: unused)" -A6 "$OUT/build-$target.log" | head -60; exit 1; }
