@@ -1278,6 +1278,25 @@ index e305f0d..e52106b 100644
  #  VM_DEBUG =       [ VM_BASE dynamic_codesigning pgzalloc ]
  #  VM_KASAN =       [ VM_BASE dynamic_codesigning config_kasan config_ubsan config_kcov config_ksancov kernel_tbi ]
  #  SECURITY =       [ config_macf config_audit kernel_integrity config_csr config_csr_from_dt config_setuid config_kas_info config_secure_bsd_root config_arcade config_supplemental_signatures second_static_trust_cache reslide_shared_cache ]
+diff --git a/iokit/Kernel/IOKitDebug.cpp b/iokit/Kernel/IOKitDebug.cpp
+index f9a8664..6a5fb5d 100644
+--- a/iokit/Kernel/IOKitDebug.cpp
++++ b/iokit/Kernel/IOKitDebug.cpp
+@@ -1212,6 +1212,14 @@ SkipName(uint32_t options, const char * name, size_t namesLen, const char * name
+ 	return !(exclude ^ found);
+ }
+ 
++#else /* !IOTRACKING */
++
++extern "C" void
++zone_leaks_scan(__unused uintptr_t * instances, __unused uint32_t count, __unused uint32_t zoneSize, uint32_t * found)
++{
++	*found = 0;
++}
++
+ #endif /* IOTRACKING */
+ 
+ /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 diff --git a/iokit/Kernel/arm/SweetAccelerator.cpp b/iokit/Kernel/arm/SweetAccelerator.cpp
 index 0254860..afdff4a 100644
 --- a/iokit/Kernel/arm/SweetAccelerator.cpp
