@@ -309,7 +309,7 @@ index e4f04ef..311b620 100644
  
  #define A6_CP_NOP		0x10
 diff --git a/bsd/dev/sweet_gpu.c b/bsd/dev/sweet_gpu.c
-index cdb1adc..54a0d1d 100644
+index cdb1adc..570e4d8 100644
 --- a/bsd/dev/sweet_gpu.c
 +++ b/bsd/dev/sweet_gpu.c
 @@ -28,6 +28,9 @@
@@ -347,7 +347,7 @@ index cdb1adc..54a0d1d 100644
  static LCK_GRP_DECLARE(sweet_gpu_grp, "sweet_gpu");
  static LCK_MTX_DECLARE(sweet_gpu_lock, &sweet_gpu_grp);
  
-@@ -253,21 +267,48 @@ gpu_bus_vote(void)
+@@ -253,21 +260,48 @@ gpu_bus_vote(void)
  	}
  }
  
@@ -398,7 +398,7 @@ index cdb1adc..54a0d1d 100644
  	(void)thread_terminate(current_thread());
  	thread_block(THREAD_CONTINUE_NULL);
  }
-@@ -445,6 +485,8 @@ gpu_recover_locked(const char *why)
+@@ -445,6 +479,8 @@ gpu_recover_locked(const char *why)
  		gpu_ready = false;
  	}
  	a6_fence_force(&gpu);
@@ -407,14 +407,7 @@ index cdb1adc..54a0d1d 100644
  	progress_fence = gpu.fence;
  	progress_abs = mach_absolute_time();
  }
-@@ -453,13 +493,14 @@ gpu_recover_locked(const char *why)
- 
- #define MDP             0x0ae00000ULL
- #define SSPP_VIG(n)     (MDP + 0x5000 + 0x2000ULL * (n))
- #define SSPP_YSTRIDE0   0x24
- #define CTL0_FLUSH      (MDP + 0x2000 + 0x18)
- 
- /* ABL scans out through VIG0 + VIG1 (540 columns each); autorefresh picks a flushed change up. */
+@@ -460,6 +496,7 @@ gpu_recover_locked(const char *why)
  void
  sweet_gpu_panel_stride(uint32_t stride)
  {
@@ -422,7 +415,7 @@ index cdb1adc..54a0d1d 100644
  	a6_wr(SSPP_VIG(0) + SSPP_YSTRIDE0, stride);
  	a6_wr(SSPP_VIG(1) + SSPP_YSTRIDE0, stride);
  	a6_wr(CTL0_FLUSH, 0x3);
-@@ -536,13 +659,14 @@ static uint32_t present_next;
+@@ -536,13 +573,14 @@ static uint32_t present_next;
  static int
  present_wait_locked(uint32_t k, const char *why)
  {
@@ -439,7 +432,7 @@ index cdb1adc..54a0d1d 100644
  		lck_mtx_lock(&sweet_gpu_lock);
  	}
  	return 0;
-@@ -649,13 +690,14 @@ sweet_gpu_present(int s, uintptr_t kva, uint32_t offset, uint32_t w, uint32_t h,
+@@ -649,13 +687,14 @@ sweet_gpu_present(int s, uintptr_t kva, uint32_t offset, uint32_t w, uint32_t h,
  	if (dim > 240) {
  		dim = 240;
  	}
@@ -461,7 +454,7 @@ index cdb1adc..54a0d1d 100644
  		if (!display_dim_built) {
  			display_dim_build();
  		}
-@@ -663,18 +699,21 @@ sweet_gpu_present(int s, uintptr_t kva, uint32_t offset, uint32_t w, uint32_t h,
+@@ -663,18 +702,21 @@ sweet_gpu_present(int s, uintptr_t kva, uint32_t offset, uint32_t w, uint32_t h,
  			display_mask_build(corner_radius, ext);
  			display_mask_radius = corner_radius;
  		}
@@ -495,20 +488,18 @@ index cdb1adc..54a0d1d 100644
  		if (ext) {
  			uint32_t top = frame.dy, bottom = frame.dy + frame.dh - ext;
  			for (uint32_t corner = 0; corner < 4; corner++) {
-@@ -683,87 +725,22 @@ sweet_gpu_present(int s, uintptr_t kva, uint32_t offset, uint32_t w, uint32_t h,
+@@ -683,86 +725,20 @@ sweet_gpu_present(int s, uintptr_t kva, uint32_t offset, uint32_t w, uint32_t h,
  					.src_w = DISPLAY_MASK_DIM, .src_h = DISPLAY_MASK_DIM, .src_pitch = DISPLAY_MASK_PITCH,
  					.sx = (corner & 1) * DISPLAY_MASK_SIDE, .sy = (corner >> 1) * DISPLAY_MASK_SIDE,
  					.sw = ext, .sh = ext,
 -					.dst_iova = A6_GVA_POOL + DISPLAY_STAGE_OFF, .dst_pitch = fb_pitch,
-+					.dst_iova = dst_fb, .dst_pitch = fb_pitch,
- 					.dx = (corner & 1) ? frame.dx + frame.dw - ext : frame.dx,
- 					.dy = (corner & 2) ? bottom : top,
- 					.dw = ext, .dh = ext, .blend = true,
- 				};
+-					.dx = (corner & 1) ? frame.dx + frame.dw - ext : frame.dx,
+-					.dy = (corner & 2) ? bottom : top,
+-					.dw = ext, .dh = ext, .blend = true,
+-				};
 -				n += a6_blit_ib(&gpu, &matte, ib + n);
-+				n += a6_blit_op(&gpu, &matte, ib + n);
- 			}
- 		}
+-			}
+-		}
 -		struct a6_blit copy_all = {
 -			.src_iova = A6_GVA_POOL + DISPLAY_STAGE_OFF,
 -			.src_w = PANEL_W, .src_h = PANEL_H, .src_pitch = fb_pitch,
@@ -547,12 +538,14 @@ index cdb1adc..54a0d1d 100644
 -				.sx = (corner & 1) * DISPLAY_MASK_SIDE, .sy = (corner >> 1) * DISPLAY_MASK_SIDE,
 -				.sw = ext, .sh = ext,
 -				.dst_iova = A6_GVA_POOL + DISPLAY_STAGE_OFF, .dst_pitch = fb_pitch,
--				.dx = (corner & 1) ? frame.dx + frame.dw - ext : frame.dx,
--				.dy = (corner & 2) ? bottom : top,
--				.dw = ext, .dh = ext, .blend = true,
--			};
++					.dst_iova = dst_fb, .dst_pitch = fb_pitch,
+ 				.dx = (corner & 1) ? frame.dx + frame.dw - ext : frame.dx,
+ 				.dy = (corner & 2) ? bottom : top,
+ 				.dw = ext, .dh = ext, .blend = true,
+ 			};
 -			n += a6_blit_ib(&gpu, &matte, ib + n);
--		}
++			n += a6_blit_op(&gpu, &matte, ib + n);
+ 		}
 -		/* ... then copied to the panel. */
 -		for (uint32_t band = 0; band < 2; band++) {
 -			uint32_t y = band ? bottom : top;
@@ -589,8 +582,7 @@ index cdb1adc..54a0d1d 100644
  		present_next++;
  	}
  	lck_mtx_unlock(&sweet_gpu_lock);
-
-@@ -920,17 +1012,14 @@ sweet_gpu_submit_user_async(uint64_t ib_iova, uint32_t dwords)
+@@ -920,17 +896,14 @@ sweet_gpu_submit_user_async(uint64_t ib_iova, uint32_t dwords)
  int
  sweet_gpu_wait_fence(uint32_t fence, uint32_t timeout_ms)
  {
@@ -614,7 +606,7 @@ index cdb1adc..54a0d1d 100644
  	if (rc) {
  		gpu_recover_locked("user fence");
  	}
-@@ -967,45 +1056,93 @@ sweet_gpu_submit_user(uint64_t ib_iova, uint32_t dwords, uint32_t timeout_ms, ui
+@@ -967,45 +940,93 @@ sweet_gpu_submit_user(uint64_t ib_iova, uint32_t dwords, uint32_t timeout_ms, ui
   * node is <0xc0000000 0x140000000>; XNU takes 4 GB up; the boot ramdisk at 0xc0000000 is dead once the
   * shim has jumped; phone/wifi's radio uses 0xe0000000-0xe1000000). Units of 16 KB (a CPU page).
   */
@@ -728,7 +720,7 @@ index cdb1adc..54a0d1d 100644
  	for (uint32_t i = 0; i < gpool_nfree; i++) {
  		if (gpool_free[i].size >= size) {
  			*pa = gpool_free[i].pa;
-@@ -1017,16 +1154,20 @@ sweet_gpu_pool_alloc(uint64_t bytes, uint64_t *pa)
+@@ -1017,16 +1038,20 @@ sweet_gpu_pool_alloc(uint64_t bytes, uint64_t *pa)
  			}
  			gpool_used += size;
  			if (gpool_used > gpool_peak) {
@@ -752,7 +744,7 @@ index cdb1adc..54a0d1d 100644
  	if (rc) {
  		a6_log("pool: no %llu bytes free (%llu MB in use)\n", size, gpool_used >> 20);
  	}
-@@ -1039,9 +1180,6 @@ sweet_gpu_pool_free(uint64_t pa, uint64_t bytes)
+@@ -1039,9 +1064,6 @@ sweet_gpu_pool_free(uint64_t pa, uint64_t bytes)
  	uint64_t size = (bytes + GPOOL_UNIT - 1) & ~(GPOOL_UNIT - 1);
  	lck_mtx_lock(&sweet_gpool_lock);
  	gpool_used -= size;
@@ -762,7 +754,7 @@ index cdb1adc..54a0d1d 100644
  	uint32_t i = 0;
  	while (i < gpool_nfree && gpool_free[i].pa < pa) {
  		i++;
-@@ -1106,9 +1244,11 @@ sweet_gpu_window_free(uint64_t base)
+@@ -1106,9 +1128,11 @@ sweet_gpu_window_free(uint64_t base)
  	lck_mtx_unlock(&sweet_gpu_lock);
  }
  
@@ -776,7 +768,7 @@ index cdb1adc..54a0d1d 100644
  {
  	if (!gpu_ready || npages == 0 || iova < WIN_BASE) {
  		return -1;
-@@ -1118,8 +1258,27 @@ sweet_gpu_map_at(uint64_t iova, const uint64_t *pages, uint32_t npages)
+@@ -1118,8 +1142,27 @@ sweet_gpu_map_at(uint64_t iova, const uint64_t *pages, uint32_t npages)
  	if (rc) {
  		a6_unmap(&gpu, iova, (uint64_t)npages << 12);
  	}
@@ -804,7 +796,7 @@ index cdb1adc..54a0d1d 100644
  	return rc;
  }
  
-@@ -1157,38 +1316,72 @@ sweet_gpu_submit_v2(const uint64_t *iova, const uint32_t *dwords, unsigned n, bo
+@@ -1157,38 +1200,72 @@ sweet_gpu_submit_v2(const uint64_t *iova, const uint32_t *dwords, unsigned n, bo
  bool
  sweet_gpu_fence_done(uint32_t fence)
  {
