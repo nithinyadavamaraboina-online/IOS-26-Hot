@@ -1,5 +1,5 @@
 diff --git a/bsd/dev/redwood_apple80211.c b/bsd/dev/redwood_apple80211.c
-index 5d744a9..bd8fcab 100644
+index 5d744a9..bd2db4a 100644
 --- a/bsd/dev/redwood_apple80211.c
 +++ b/bsd/dev/redwood_apple80211.c
 @@ -34,6 +34,7 @@
@@ -10,15 +10,11 @@ index 5d744a9..bd8fcab 100644
  #include <sys/errno.h>
  #include <sys/kern_event.h>
  #include <sys/kernel.h>
-@@ -714,6 +715,7 @@ errno_t
- redwood_apple80211_ioctl(u_long command, void *data)
- {
- 	static unsigned said;
+@@ -722,11 +723,16 @@ redwood_apple80211_ioctl(u_long command, void *data)
+ 	if (command != SIOCSA80211 && command != SIOCGA80211) {
+ 		return EOPNOTSUPP;
+ 	}
 +	static int a80211_log = -1;
- 	struct apple80211req *request = data;
- 	char who[32] = "?", what[200] = "";
- 	bool is_set = command == SIOCSA80211;
-@@ -725,8 +727,12 @@ redwood_apple80211_ioctl(u_long command, void *data)
  	proc_selfname(who, sizeof(who));
  	error = is_set ? set(request, what, sizeof(what)) : get(request);
  	note(request, is_set, error);
@@ -450,426 +446,48 @@ index 82097a3..5080efc 100644
  }
  #endif /* ARM64_BOARD_CONFIG_SWEET */
 diff --git a/bsd/dev/sweet_gpu.c b/bsd/dev/sweet_gpu.c
-index cdb1adc..54a0d1d 100644
+index cdb1adc..464d987 100644
 --- a/bsd/dev/sweet_gpu.c
 +++ b/bsd/dev/sweet_gpu.c
-@@ -28,6 +28,9 @@
- #include <vm/vm_kern.h>
- #include <pexpert/pexpert.h>
+@@ -30,6 +30,7 @@
  #include <pexpert/device_tree.h>
-+#include <pexpert/arm64/board_config.h>
-+#include <machine/atomic.h>
-+#include <os/atomic_private.h>
  #include <libkern/libkern.h>
  #include <mach/mach_time.h>
++#include <pexpert/arm64/board_config.h>
  #include "sweet_a6xx.h"
-@@ -51,6 +54,10 @@ int sweet_gpu_present(int slot, uintptr_t kva, uint32_t offset, uint32_t w, uint
- 	uint32_t fb_pitch, uint32_t corner_radius, uint32_t *out_dx, uint32_t *out_dy,
- 	uint32_t *out_dw, uint32_t *out_dh);
- void sweet_gpu_panel_stride(uint32_t stride);
-+void sweet_gpu_panel_fb0(void);
-+bool sweet_gpu_te_phase(uint64_t now, uint64_t *last_te_abs, uint64_t *period_abs);
-+bool sweet_gpu_fence_done(uint32_t fence);
-+int sweet_gpu_wait_fence_ns(uint32_t fence, uint64_t timeout_ns);
- int sweet_gpu_map_user(uint64_t *iova_out, const uint64_t *pages, uint32_t npages, uint32_t page_size);
- int sweet_gpu_submit_user(uint64_t ib_iova, uint32_t dwords, uint32_t timeout_ms, uint32_t *fence_out);
+ #include "../../iokit/Kernel/arm/SweetDisplayMask.h"
  
-@@ -61,11 +68,18 @@ volatile uint32_t sweet_backlight_alpha;
- 
+@@ -62,7 +63,8 @@ volatile uint32_t sweet_backlight_alpha;
  static struct a6_gpu gpu;
  static vm_offset_t pool_kva;
--/* More GPU page tables than the pool's arena (~250 tables = 500 MB mapped): 2048 more (4 GB) */
+ /* More GPU page tables than the pool's arena (~250 tables = 500 MB mapped): 2048 more (4 GB) */
 -#define PT_EXTRA_SIZE   0x800000ULL
 +/* 6144 extra 4K page tables (12 GB GPU VA space) so multi-client Turnip heaps never exhaust L3 tables */
 +#define PT_EXTRA_SIZE   0x1800000ULL
  static vm_offset_t pt_kva;
  static uint64_t pt_pa;
  static volatile bool gpu_ready;
-+#define SWEET_GPU_INTID 332u
-+static uint32_t _Atomic gpu_done_fence;
-+static uint32_t _Atomic active_fb;
-+static uint32_t _Atomic pending_flip_fence;
-+static volatile uint32_t pending_flip_buf;
-+static uint32_t fb_cleared_mask;
-+static uint64_t last_fit_key;
- static LCK_GRP_DECLARE(sweet_gpu_grp, "sweet_gpu");
- static LCK_MTX_DECLARE(sweet_gpu_lock, &sweet_gpu_grp);
- 
-@@ -253,21 +267,51 @@ gpu_bus_vote(void)
+@@ -245,12 +247,18 @@ gpu_bus_vote(void)
+ 	if (!on) {
+ 		return;
  	}
+-	static const char *const bcm[] = { "MC0", "SH0" };
++	static const char *const bcm[] = { "MC0", "SH0", "SN0", "CN0" };
+ 	for (unsigned i = 0; i < sizeof(bcm) / sizeof(bcm[0]); i++) {
+ 		uint32_t off = 0, val = 1u << 30 | 1u << 29 | 0x3fffu << 14 | 0x3fffu;
+ 		int rc = sweet_rpmh_write(bcm[i], 1, &off, &val);
+ 		a6_log("bus vote %s top -> %d\n", bcm[i], rc);
+ 	}
++	/* Boost L3 cache frequency to 1.612 GHz (ACD/EPSS L3 0x18323000) */
++	volatile uint32_t *l3_vote = (volatile uint32_t *)ml_io_map_unmappable(0x18323000ULL, 0x1000, VM_WIMG_IO);
++	if (l3_vote != NULL) {
++		l3_vote[0] = 0x3f;
++		a6_log("l3 vote 1612 MHz\n");
++	}
  }
  
-+static uint32_t
-+gpu_sync_done_fence(void)
-+{
-+	uint32_t done = a6_fence_read(&gpu);
-+	uint32_t prev = os_atomic_load(&gpu_done_fence, relaxed);
-+	if ((int32_t)(done - prev) > 0) {
-+		os_atomic_store(&gpu_done_fence, done, release);
-+		return done;
-+	}
-+	return prev;
-+}
-+
-+static void gpu_check_flip(uint32_t done);
-+
-+static void
-+gpu_irq_handler(void *arg __unused)
-+{
-+	if (!gpu_ready) {
-+		return;
-+	}
-+	(void)a6_irq_ack();
-+	uint32_t done = gpu_sync_done_fence();
-+	gpu_check_flip(done);
-+	thread_wakeup((event_t)&gpu_done_fence);
-+}
-+
  static void
- gpu_thread(void *arg __unused, wait_result_t wr __unused)
- {
- 	uint64_t t0 = mach_absolute_time(), ns;
-+	/* Pre-map GPU + MDP 2 MB MMIO windows in thread context before enabling ISR. */
-+	(void)gpu_io(A6_GPU_BASE);
-+	(void)gpu_io(0x0ae00000ULL);
- 	gpu_bus_vote();
- 	lck_mtx_lock(&sweet_gpu_lock);
- 	int rc = a6_power_up(&gpu);
- 	if (!rc) {
- 		a6_unmap_high(&gpu);
- 		gpu_ready = true;
-+		sweet_gic_register_spi(SWEET_GPU_INTID, 0, gpu_irq_handler, NULL);
- 	}
- 	lck_mtx_unlock(&sweet_gpu_lock);
- 	absolutetime_to_nanoseconds(mach_absolute_time() - t0, &ns);
--	a6_log("bring-up %s in %llu ms (pool 0x%llx)\n", rc ? "FAILED" : "done, GPU ready", ns / 1000000,
--	    gpu.pool_pa);
-+	a6_log("bring-up %s in %llu ms (pool 0x%llx, irq %u)\n", rc ? "FAILED" : "done, GPU ready", ns / 1000000,
-+	    gpu.pool_pa, SWEET_GPU_INTID);
- 	(void)thread_terminate(current_thread());
- 	thread_block(THREAD_CONTINUE_NULL);
- }
-@@ -445,6 +489,9 @@ gpu_recover_locked(const char *why)
- 		gpu_ready = false;
- 	}
- 	a6_fence_force(&gpu);
-+	os_atomic_store(&pending_flip_fence, 0u, release);
-+	os_atomic_store(&gpu_done_fence, gpu.fence, release);
-+	thread_wakeup((event_t)&gpu_done_fence);
- 	progress_fence = gpu.fence;
- 	progress_abs = mach_absolute_time();
- }
-@@ -453,13 +500,89 @@ gpu_recover_locked(const char *why)
- 
- #define MDP             0x0ae00000ULL
- #define SSPP_VIG(n)     (MDP + 0x5000 + 0x2000ULL * (n))
-+#define SSPP_SRC0_ADDR  0x14
- #define SSPP_YSTRIDE0   0x24
- #define CTL0_FLUSH      (MDP + 0x2000 + 0x18)
-+#define MDP_INTF1       (MDP + 0x6b800ULL)
-+#define INTF_TEAR_EN        0x284
-+#define INTF_TEAR_VSYNC_CFG 0x288
-+#define INTF_TEAR_INIT_VAL  0x294
-+#define INTF_TEAR_INT_COUNT 0x298
-+
-+static void
-+gpu_check_flip(uint32_t done)
-+{
-+	uint32_t pf = os_atomic_load(&pending_flip_fence, acquire);
-+	if (pf != 0 && (int32_t)(done - pf) >= 0) {
-+		uint32_t buf = pending_flip_buf & 1u;
-+		if (os_atomic_cmpxchg(&pending_flip_fence, pf, 0u, acq_rel)) {
-+			uint32_t pa = (uint32_t)(buf ? A6_FB2_PA : A6_FB_PA);
-+			a6_wr(SSPP_VIG(0) + SSPP_SRC0_ADDR, pa);
-+			a6_wr(SSPP_VIG(1) + SSPP_SRC0_ADDR, pa);
-+			a6_wr(CTL0_FLUSH, 0x3);
-+			os_atomic_store(&active_fb, buf, release);
-+		}
-+	}
-+}
-+
-+void
-+sweet_gpu_panel_fb0(void)
-+{
-+	(void)gpu_io(MDP);
-+	os_atomic_store(&pending_flip_fence, 0u, release);
-+	a6_wr(SSPP_VIG(0) + SSPP_SRC0_ADDR, (uint32_t)A6_FB_PA);
-+	a6_wr(SSPP_VIG(1) + SSPP_SRC0_ADDR, (uint32_t)A6_FB_PA);
-+	a6_wr(CTL0_FLUSH, 0x3);
-+	os_atomic_store(&active_fb, 0u, release);
-+}
-+
-+/*
-+ * Read SDE INTF_1 hardware tear-check counter (clocked by the same 19.2 MHz XO
-+ * as mach_absolute_time) and return the exact host timestamp of the most recent
-+ * panel TE edge plus the panel refresh period (~320,641 ticks = 59.88 Hz).
-+ */
-+bool
-+sweet_gpu_te_phase(uint64_t now, uint64_t *last_te_abs, uint64_t *period_abs)
-+{
-+	static uint64_t tracked_period = 320641ULL;
-+	static uint64_t prev_te;
-+	(void)gpu_io(MDP);
-+	if (gpu_ready) {
-+		gpu_check_flip(gpu_sync_done_fence());
-+	}
-+	if ((a6_rd(MDP_INTF1 + INTF_TEAR_EN) & 1u) == 0) {
-+		return false;
-+	}
-+	uint32_t vcfg = a6_rd(MDP_INTF1 + INTF_TEAR_VSYNC_CFG) & 0xffffu;
-+	uint32_t init = a6_rd(MDP_INTF1 + INTF_TEAR_INIT_VAL) & 0xffffu;
-+	uint32_t icnt = a6_rd(MDP_INTF1 + INTF_TEAR_INT_COUNT) & 0xffffu;
-+	if (vcfg < 16u || vcfg > 1024u || icnt < init) {
-+		return false;
-+	}
-+	uint64_t elapsed = (uint64_t)(icnt - init) * (uint64_t)vcfg;
-+	if (elapsed > 400000ULL || elapsed > now) {
-+		return false;
-+	}
-+	uint64_t te = now - elapsed;
-+	if (prev_te != 0 && te > prev_te) {
-+		uint64_t delta = te - prev_te;
-+		if (delta >= 280000ULL && delta <= 360000ULL) {
-+			tracked_period = (tracked_period * 7ULL + delta) >> 3;
-+		}
-+	}
-+	if (prev_te == 0 || te > prev_te + 160000ULL) {
-+		prev_te = te;
-+	}
-+	*last_te_abs = te;
-+	*period_abs = tracked_period;
-+	return true;
-+}
- 
- /* ABL scans out through VIG0 + VIG1 (540 columns each); autorefresh picks a flushed change up. */
- void
- sweet_gpu_panel_stride(uint32_t stride)
- {
-+	(void)gpu_io(MDP);
- 	a6_wr(SSPP_VIG(0) + SSPP_YSTRIDE0, stride);
- 	a6_wr(SSPP_VIG(1) + SSPP_YSTRIDE0, stride);
- 	a6_wr(CTL0_FLUSH, 0x3);
-@@ -536,13 +659,14 @@ static uint32_t present_next;
- static int
- present_wait_locked(uint32_t k, const char *why)
- {
--	while (present_fence[k] && !a6_fence_done(&gpu, present_fence[k])) {
-+	while (present_fence[k] && !sweet_gpu_fence_done(present_fence[k])) {
- 		if (gpu_hung_locked(500)) {
- 			gpu_recover_locked(why);
- 			return -1;
- 		}
-+		uint32_t want = present_fence[k];
- 		lck_mtx_unlock(&sweet_gpu_lock);
--		delay(20);
-+		(void)sweet_gpu_wait_fence_ns(want, 2000000ULL);
- 		lck_mtx_lock(&sweet_gpu_lock);
- 	}
- 	return 0;
-@@ -649,13 +773,25 @@ sweet_gpu_present(int s, uintptr_t kva, uint32_t offset, uint32_t w, uint32_t h,
- 	if (dim > 240) {
- 		dim = 240;
- 	}
--	uint32_t n = 0;
--	if (dim > 0) {
--		/*
--		 * Tear-free AMOLED software dimming: scale into DISPLAY_STAGE_OFF, blend the
--		 * translucent black dim tile (and optional rounded-corner mattes) off-screen,
--		 * then copy the finished rectangle to A6_GVA_FB in a single pass.
--		 */
-+	/*
-+	 * True SDE hardware double-buffering (FB0 @ 0x9d000000, FB1 @ 0x9da00000) +
-+	 * coalesced single-setup 2D blit stream: render scale + optional dim + optional
-+	 * corner mattes directly into the offscreen backbuffer with zero staging copies,
-+	 * then flip VIG0/VIG1 + CTL0_FLUSH in gpu_irq_handler the microsecond the fence lands.
-+	 */
-+	gpu_check_flip(gpu_sync_done_fence());
-+	uint32_t k = present_next & 1u;
-+	int rc = present_wait_locked(k, "present");
-+	if (rc == 0) {
-+		uint32_t front = os_atomic_load(&active_fb, acquire) & 1u;
-+		uint32_t back = 1u - front;
-+		uint64_t dst_fb = back ? A6_GVA_FB2 : A6_GVA_FB;
-+		uint64_t fit_key = ((uint64_t)frame.dx << 48) | ((uint64_t)frame.dy << 32) |
-+		    ((uint64_t)frame.dw << 16) | (uint64_t)frame.dh;
-+		if (fit_key != last_fit_key) {
-+			last_fit_key = fit_key;
-+			fb_cleared_mask = 0;
-+		}
- 		if (!display_dim_built) {
- 			display_dim_build();
- 		}
-@@ -663,18 +799,32 @@ sweet_gpu_present(int s, uintptr_t kva, uint32_t offset, uint32_t w, uint32_t h,
- 			display_mask_build(corner_radius, ext);
- 			display_mask_radius = corner_radius;
- 		}
--		struct a6_blit sframe = frame;
--		sframe.dst_iova = A6_GVA_POOL + DISPLAY_STAGE_OFF;
--		n += a6_blit_ib(&gpu, &sframe, ib + n);
--		struct a6_blit dim_blit = {
--			.src_iova = A6_GVA_POOL + DISPLAY_DIM_OFF + (uint64_t)dim * DISPLAY_DIM_STRIDE,
--			.src_w = DISPLAY_DIM_TILE, .src_h = DISPLAY_DIM_TILE, .src_pitch = DISPLAY_DIM_PITCH,
--			.sw = DISPLAY_DIM_TILE, .sh = DISPLAY_DIM_TILE,
--			.dst_iova = A6_GVA_POOL + DISPLAY_STAGE_OFF, .dst_pitch = fb_pitch,
--			.dx = frame.dx, .dy = frame.dy, .dw = frame.dw, .dh = frame.dh,
--			.blend = true,
--		};
--		n += a6_blit_ib(&gpu, &dim_blit, ib + n);
-+		uint32_t n = a6_blit_begin(&gpu, ib);
-+		if (!(fb_cleared_mask & (1u << back))) {
-+			struct a6_blit clr = {
-+				.src_iova = A6_GVA_POOL + DISPLAY_DIM_OFF + 255ULL * DISPLAY_DIM_STRIDE,
-+				.src_w = DISPLAY_DIM_TILE, .src_h = DISPLAY_DIM_TILE, .src_pitch = DISPLAY_DIM_PITCH,
-+				.sw = DISPLAY_DIM_TILE, .sh = DISPLAY_DIM_TILE,
-+				.dst_iova = dst_fb, .dst_pitch = fb_pitch,
-+				.dx = 0, .dy = 0, .dw = PANEL_W, .dh = PANEL_H,
-+			};
-+			n += a6_blit_op(&gpu, &clr, ib + n);
-+			fb_cleared_mask |= (1u << back);
-+		}
-+		struct a6_blit bmain = frame;
-+		bmain.dst_iova = dst_fb;
-+		n += a6_blit_op(&gpu, &bmain, ib + n);
-+		if (dim > 0) {
-+			struct a6_blit dim_blit = {
-+				.src_iova = A6_GVA_POOL + DISPLAY_DIM_OFF + (uint64_t)dim * DISPLAY_DIM_STRIDE,
-+				.src_w = DISPLAY_DIM_TILE, .src_h = DISPLAY_DIM_TILE, .src_pitch = DISPLAY_DIM_PITCH,
-+				.sw = DISPLAY_DIM_TILE, .sh = DISPLAY_DIM_TILE,
-+				.dst_iova = dst_fb, .dst_pitch = fb_pitch,
-+				.dx = frame.dx, .dy = frame.dy, .dw = frame.dw, .dh = frame.dh,
-+				.blend = true,
-+			};
-+			n += a6_blit_op(&gpu, &dim_blit, ib + n);
-+		}
- 		if (ext) {
- 			uint32_t top = frame.dy, bottom = frame.dy + frame.dh - ext;
- 			for (uint32_t corner = 0; corner < 4; corner++) {
-@@ -683,86 +833,28 @@ sweet_gpu_present(int s, uintptr_t kva, uint32_t offset, uint32_t w, uint32_t h,
- 					.src_w = DISPLAY_MASK_DIM, .src_h = DISPLAY_MASK_DIM, .src_pitch = DISPLAY_MASK_PITCH,
- 					.sx = (corner & 1) * DISPLAY_MASK_SIDE, .sy = (corner >> 1) * DISPLAY_MASK_SIDE,
- 					.sw = ext, .sh = ext,
--					.dst_iova = A6_GVA_POOL + DISPLAY_STAGE_OFF, .dst_pitch = fb_pitch,
-+					.dst_iova = dst_fb, .dst_pitch = fb_pitch,
- 					.dx = (corner & 1) ? frame.dx + frame.dw - ext : frame.dx,
- 					.dy = (corner & 2) ? bottom : top,
- 					.dw = ext, .dh = ext, .blend = true,
- 				};
--				n += a6_blit_ib(&gpu, &matte, ib + n);
-+				n += a6_blit_op(&gpu, &matte, ib + n);
- 			}
- 		}
--		struct a6_blit copy_all = {
--			.src_iova = A6_GVA_POOL + DISPLAY_STAGE_OFF,
--			.src_w = PANEL_W, .src_h = PANEL_H, .src_pitch = fb_pitch,
--			.sx = frame.dx, .sy = frame.dy, .sw = frame.dw, .sh = frame.dh,
--			.dst_iova = A6_GVA_FB, .dst_pitch = fb_pitch,
--			.dx = frame.dx, .dy = frame.dy, .dw = frame.dw, .dh = frame.dh,
--		};
--		n += a6_blit_ib(&gpu, &copy_all, ib + n);
--	} else if (ext) {
--		if (display_mask_radius != corner_radius) {
--			display_mask_build(corner_radius, ext);
--			display_mask_radius = corner_radius;
--		}
--		uint32_t top = frame.dy, bottom = frame.dy + frame.dh - ext;
--		struct a6_blit b = frame;
--		b.clip = true;
--		b.cx0 = 0;
--		b.cx1 = PANEL_W - 1;
--		/* The rows between the corners straight to the panel ... */
--		b.cy0 = top + ext;
--		b.cy1 = bottom - 1;
--		n += a6_blit_ib(&gpu, &b, ib + n);
--		/* ... the corner rows to the stage ... */
--		b.dst_iova = A6_GVA_POOL + DISPLAY_STAGE_OFF;
--		b.cy0 = top;
--		b.cy1 = top + ext - 1;
--		n += a6_blit_ib(&gpu, &b, ib + n);
--		b.cy0 = bottom;
--		b.cy1 = bottom + ext - 1;
--		n += a6_blit_ib(&gpu, &b, ib + n);
--		/* ... darkened by the mattes ... */
--		for (uint32_t corner = 0; corner < 4; corner++) {
--			struct a6_blit matte = {
--				.src_iova = A6_GVA_POOL + DISPLAY_MASK_OFF,
--				.src_w = DISPLAY_MASK_DIM, .src_h = DISPLAY_MASK_DIM, .src_pitch = DISPLAY_MASK_PITCH,
--				.sx = (corner & 1) * DISPLAY_MASK_SIDE, .sy = (corner >> 1) * DISPLAY_MASK_SIDE,
--				.sw = ext, .sh = ext,
--				.dst_iova = A6_GVA_POOL + DISPLAY_STAGE_OFF, .dst_pitch = fb_pitch,
--				.dx = (corner & 1) ? frame.dx + frame.dw - ext : frame.dx,
--				.dy = (corner & 2) ? bottom : top,
--				.dw = ext, .dh = ext, .blend = true,
--			};
--			n += a6_blit_ib(&gpu, &matte, ib + n);
--		}
--		/* ... then copied to the panel. */
--		for (uint32_t band = 0; band < 2; band++) {
--			uint32_t y = band ? bottom : top;
--			struct a6_blit copy = {
--				.src_iova = A6_GVA_POOL + DISPLAY_STAGE_OFF,
--				.src_w = PANEL_W, .src_h = PANEL_H, .src_pitch = fb_pitch,
--				.sx = frame.dx, .sy = y, .sw = frame.dw, .sh = ext,
--				.dst_iova = A6_GVA_FB, .dst_pitch = fb_pitch,
--				.dx = frame.dx, .dy = y, .dw = frame.dw, .dh = ext,
--			};
--			n += a6_blit_ib(&gpu, &copy, ib + n);
--		}
--	} else {
--		n = a6_blit_ib(&gpu, &frame, ib);
--	}
--	/*
--	 * Not waited for: the vsync timer must not block behind the Metal clients' work queued ahead of it
--	 * (a waited present took 15-30 ms with metal2vulkan's frames in the ring, and the vsync notifications
--	 * CA paces on came late). Two IB slots: only the one two presents back must have landed.
--	 */
--	uint32_t k = present_next & 1;
--	int rc = present_wait_locked(k, "present");
--	if (rc == 0) {
-+		n += a6_blit_end(&gpu, ib + n);
- 		a6_write(a6_pool_pa(&gpu, PRESENT_IB(k)), ib, 4ULL * n);
- 		gpu_note_submit_locked();
--		present_fence[k] = a6_submit_ib_async(&gpu, a6_pool_va(PRESENT_IB(k)), n, 100);
--		gpu_owner_locked(present_fence[k], 0);
--		rc = present_fence[k] ? 0 : -1;
-+		uint32_t f = a6_submit_ib_async(&gpu, a6_pool_va(PRESENT_IB(k)), n, 100);
-+		present_fence[k] = f;
-+		gpu_owner_locked(f, 0);
-+		if (f != 0) {
-+			pending_flip_buf = back;
-+			os_atomic_store(&pending_flip_fence, f, release);
-+			gpu_check_flip(gpu_sync_done_fence());
-+			rc = 0;
-+		} else {
-+			rc = -1;
-+		}
- 		present_next++;
- 	}
- 	lck_mtx_unlock(&sweet_gpu_lock);
-@@ -920,17 +1012,14 @@ sweet_gpu_submit_user_async(uint64_t ib_iova, uint32_t dwords)
- int
- sweet_gpu_wait_fence(uint32_t fence, uint32_t timeout_ms)
- {
--	for (unsigned i = 0; i < timeout_ms * 50; i++) {
--		if (!gpu_ready) {
--			return -1;
--		}
--		if (a6_fence_done(&gpu, fence)) {
--			return 0;
--		}
--		delay(20);
-+	if (!gpu_ready) {
-+		return -1;
-+	}
-+	if (sweet_gpu_wait_fence_ns(fence, (uint64_t)timeout_ms * 1000000ULL) == 0) {
-+		return 0;
- 	}
- 	lck_mtx_lock(&sweet_gpu_lock);
--	int rc = a6_fence_done(&gpu, fence) ? 0 : -1;
-+	int rc = sweet_gpu_fence_done(fence) ? 0 : -1;
- 	if (rc) {
- 		gpu_recover_locked("user fence");
- 	}
-@@ -967,45 +1056,93 @@ sweet_gpu_submit_user(uint64_t ib_iova, uint32_t dwords, uint32_t timeout_ms, ui
+@@ -967,45 +975,93 @@ sweet_gpu_submit_user(uint64_t ib_iova, uint32_t dwords, uint32_t timeout_ms, ui
   * node is <0xc0000000 0x140000000>; XNU takes 4 GB up; the boot ramdisk at 0xc0000000 is dead once the
   * shim has jumped; phone/wifi's radio uses 0xe0000000-0xe1000000). Units of 16 KB (a CPU page).
   */
@@ -983,7 +601,7 @@ index cdb1adc..54a0d1d 100644
  	for (uint32_t i = 0; i < gpool_nfree; i++) {
  		if (gpool_free[i].size >= size) {
  			*pa = gpool_free[i].pa;
-@@ -1017,16 +1154,20 @@ sweet_gpu_pool_alloc(uint64_t bytes, uint64_t *pa)
+@@ -1017,16 +1073,20 @@ sweet_gpu_pool_alloc(uint64_t bytes, uint64_t *pa)
  			}
  			gpool_used += size;
  			if (gpool_used > gpool_peak) {
@@ -1007,7 +625,7 @@ index cdb1adc..54a0d1d 100644
  	if (rc) {
  		a6_log("pool: no %llu bytes free (%llu MB in use)\n", size, gpool_used >> 20);
  	}
-@@ -1039,9 +1180,6 @@ sweet_gpu_pool_free(uint64_t pa, uint64_t bytes)
+@@ -1039,9 +1099,6 @@ sweet_gpu_pool_free(uint64_t pa, uint64_t bytes)
  	uint64_t size = (bytes + GPOOL_UNIT - 1) & ~(GPOOL_UNIT - 1);
  	lck_mtx_lock(&sweet_gpool_lock);
  	gpool_used -= size;
@@ -1017,134 +635,6 @@ index cdb1adc..54a0d1d 100644
  	uint32_t i = 0;
  	while (i < gpool_nfree && gpool_free[i].pa < pa) {
  		i++;
-@@ -1106,9 +1244,11 @@ sweet_gpu_window_free(uint64_t base)
- 	lck_mtx_unlock(&sweet_gpu_lock);
- }
- 
--/* 4K pages at iova (inside the caller's window), then a TLB flush. */
-+int sweet_gpu_map_at_noflush(uint64_t iova, const uint64_t *pages, uint32_t npages);
-+void sweet_gpu_tlb_flush(void);
-+
- int
--sweet_gpu_map_at(uint64_t iova, const uint64_t *pages, uint32_t npages)
-+sweet_gpu_map_at_noflush(uint64_t iova, const uint64_t *pages, uint32_t npages)
- {
- 	if (!gpu_ready || npages == 0 || iova < WIN_BASE) {
- 		return -1;
-@@ -1118,8 +1258,27 @@ sweet_gpu_map_at(uint64_t iova, const uint64_t *pages, uint32_t npages)
- 	if (rc) {
- 		a6_unmap(&gpu, iova, (uint64_t)npages << 12);
- 	}
-+	lck_mtx_unlock(&sweet_gpu_lock);
-+	return rc;
-+}
-+
-+void
-+sweet_gpu_tlb_flush(void)
-+{
-+	if (!gpu_ready) {
-+		return;
-+	}
-+	lck_mtx_lock(&sweet_gpu_lock);
- 	a6_tlb_flush(&gpu);
- 	lck_mtx_unlock(&sweet_gpu_lock);
-+}
-+
-+/* 4K pages at iova (inside the caller's window), then a TLB flush. */
-+int
-+sweet_gpu_map_at(uint64_t iova, const uint64_t *pages, uint32_t npages)
-+{
-+	int rc = sweet_gpu_map_at_noflush(iova, pages, npages);
-+	sweet_gpu_tlb_flush();
- 	return rc;
- }
- 
-@@ -1157,38 +1316,72 @@ sweet_gpu_submit_v2(const uint64_t *iova, const uint32_t *dwords, unsigned n, bo
- bool
- sweet_gpu_fence_done(uint32_t fence)
- {
--	return !gpu_ready || a6_fence_done(&gpu, fence);
-+	if (!gpu_ready) {
-+		return true;
-+	}
-+	if ((int32_t)(os_atomic_load(&gpu_done_fence, acquire) - fence) >= 0) {
-+		return true;
-+	}
-+	return (int32_t)(gpu_sync_done_fence() - fence) >= 0;
- }
- 
- /*
-- * Wait up to timeout_ns (0: look once) for a fence: 0 done, 1 timeout. A GPU that makes no progress for
-- * a second is reset here (its queued work is lost; sweet_gpu_lost tells the clients).
-+ * IRQ-driven fence wait (INTID 332 CP_CACHE_FLUSH_TS): short 15 us spin for
-+ * sub-frame micro-submits, then sleep on &gpu_done_fence woken immediately by
-+ * gpu_irq_handler (250 us safety quantum). Zero busy-spin CPU burn.
-  */
- int
- sweet_gpu_wait_fence_ns(uint32_t fence, uint64_t timeout_ns)
- {
--	/* the hang check by time, not per call: Turnip's darwin backend waits in 1 ms slices */
- 	static uint64_t last_check;
--	uint64_t t0 = mach_absolute_time(), ns = 0, check_abs;
-+	if (sweet_gpu_fence_done(fence)) {
-+		return 0;
-+	}
-+	if (timeout_ns == 0) {
-+		return 1;
-+	}
-+	uint64_t t0 = mach_absolute_time(), spin_end = t0 + 288ULL; /* ~15 us @ 19.2 MHz */
-+	while (mach_absolute_time() < spin_end) {
-+		__builtin_arm_isb(ISB_SY);
-+		if ((int32_t)(os_atomic_load(&gpu_done_fence, acquire) - fence) >= 0) {
-+			return 0;
-+		}
-+	}
-+	if (sweet_gpu_fence_done(fence)) {
-+		return 0;
-+	}
-+	uint64_t check_abs;
- 	nanoseconds_to_absolutetime(5000000, &check_abs);
- 	for (;;) {
--		if (sweet_gpu_fence_done(fence)) {
--			return 0;
-+		uint64_t now = mach_absolute_time(), elapsed_ns = 0;
-+		absolutetime_to_nanoseconds(now - t0, &elapsed_ns);
-+		if (elapsed_ns >= timeout_ns) {
-+			return sweet_gpu_fence_done(fence) ? 0 : 1;
- 		}
--		uint64_t now = mach_absolute_time();
- 		if (now - last_check > check_abs) {
- 			last_check = now;
- 			lck_mtx_lock(&sweet_gpu_lock);
--			if (!a6_fence_done(&gpu, fence) && gpu_hung_locked(1000)) {
-+			if (!sweet_gpu_fence_done(fence) && gpu_hung_locked(1000)) {
- 				gpu_recover_locked("v2 fence wait");
- 			}
- 			lck_mtx_unlock(&sweet_gpu_lock);
-+			if (sweet_gpu_fence_done(fence)) {
-+				return 0;
-+			}
- 		}
--		absolutetime_to_nanoseconds(now - t0, &ns);
--		if (ns >= timeout_ns) {
--			return sweet_gpu_fence_done(fence) ? 0 : 1;
-+		uint64_t rem_ns = timeout_ns - elapsed_ns;
-+		uint64_t slice_ns = rem_ns < 250000ULL ? rem_ns : 250000ULL;
-+		uint64_t wdeadline;
-+		nanoseconds_to_deadline(slice_ns, &wdeadline);
-+		(void)assert_wait_deadline((event_t)&gpu_done_fence, THREAD_UNINT, wdeadline);
-+		if (sweet_gpu_fence_done(fence)) {
-+			clear_wait(current_thread(), THREAD_AWAKENED);
-+			return 0;
-+		}
-+		thread_block(THREAD_CONTINUE_NULL);
-+		if (sweet_gpu_fence_done(fence)) {
-+			return 0;
- 		}
--		delay(20);
- 	}
- }
- 
 diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
 index 083693a..80a8331 100644
 --- a/bsd/dev/sweet_ufs.c
@@ -1554,206 +1044,6 @@ index 0254860..afdff4a 100644
  			bo->iova = rq->iova;
  			rp->iova = rq->iova;
  		} else if (bo != NULL && bo->iova == 0 && r != kIOReturnBadArgument && r != kIOReturnBusy) {
-diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
-index 668fb3a..93fc4fb 100644
---- a/iokit/Kernel/arm/SweetFramebuffer.cpp
-+++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
-@@ -48,6 +48,8 @@ int sweet_gpu_present(int slot, uintptr_t kva, uint32_t offset, uint32_t w, uint
- 	uint32_t fb_pitch, uint32_t corner_radius, uint32_t *out_dx, uint32_t *out_dy,
- 	uint32_t *out_dw, uint32_t *out_dh);
- void sweet_gpu_panel_stride(uint32_t stride);
-+void sweet_gpu_panel_fb0(void);
-+bool sweet_gpu_te_phase(uint64_t now, uint64_t *last_te_abs, uint64_t *period_abs);
- extern int sweet_display_fit_x, sweet_display_fit_y, sweet_display_fit_w, sweet_display_fit_h;
- extern volatile uint32_t sweet_backlight_alpha;
- }
-@@ -78,6 +80,8 @@ enum {
- 	kSweetFBIsMainDisplay           = 18,
- 	kSweetFBGetDotPitch             = 28,
- 	kSweetFBNotifications           = 72,
-+	kSweetFBGetCurrentAbsoluteTime  = 77,
-+	kSweetFBGetBlock                = 79,
- };
- 
- #define SWEET_FB_SWAP_REC_SIZE          0x46c
-@@ -114,6 +118,7 @@ class AppleCLCD : public IOMobileFramebuffer {
- 	uint64_t            fVsyncCount;
- 	uint64_t            fNextVsync;     /* absolute deadline of the next tick */
- 	uint64_t            fVsyncAbs;      /* tick period in absolute time units */
-+	uint64_t            fLastTE;        /* last monotonic TE timestamp sent to CA */
- 	uint64_t            fStatSwaps, fStatPresents, fStatPresentAbs;
- 
- 	static void vsyncFired(OSObject *owner, IOTimerEventSource *sender);
-@@ -251,14 +256,48 @@ AppleCLCD::start(IOService *provider)
- 		IOLog("SWEET FB: no vsync timer\n");
- 		return false;
- 	}
--	uint32_t hz = 10;
-+	uint32_t hz = 60;
- 	PE_parse_boot_argn("sweetfb_hz", &hz, sizeof(hz));
- 	fFlushTicks = (hz == 0 || hz >= 60) ? 1 : 60 / hz;
- 	fVsync->setTimeoutUS(SWEET_FB_VSYNC_US);
- 
- 	setProperty(kIOUserClientClassKey, "IOMobileFramebufferUserClient");
- 	setProperty("external", false);
-+	setProperty("NormalMode", kOSBooleanTrue);
- 	setProperty("DisplayPipePlaneBaseAlignment", 64ULL, 32);
-+	{
-+		OSDictionary *timing = OSDictionary::withCapacity(4);
-+		OSArray *timings = OSArray::withCapacity(1);
-+		if (timing != NULL && timings != NULL) {
-+			OSNumber *tid = OSNumber::withNumber(0ULL, 32);
-+			OSNumber *rr = OSNumber::withNumber(60ULL << 16, 32);
-+			if (tid != NULL) { timing->setObject("ID", tid); tid->release(); }
-+			if (rr != NULL) { timing->setObject("RefreshRate", rr); rr->release(); }
-+			timings->setObject(timing);
-+			setProperty("TimingElements", timings);
-+		}
-+		OSSafeReleaseNULL(timing);
-+		OSSafeReleaseNULL(timings);
-+
-+		OSDictionary *color = OSDictionary::withCapacity(5);
-+		OSArray *colors = OSArray::withCapacity(1);
-+		if (color != NULL && colors != NULL) {
-+			OSNumber *cid = OSNumber::withNumber(0ULL, 32);
-+			OSString *enc = OSString::withCString("BGRA");
-+			OSNumber *bpc = OSNumber::withNumber(8ULL, 32);
-+			OSNumber *dr = OSNumber::withNumber(1ULL, 32);
-+			OSNumber *cs = OSNumber::withNumber(0ULL, 32);
-+			if (cid != NULL) { color->setObject("ID", cid); cid->release(); }
-+			if (enc != NULL) { color->setObject("PixelEncoding", enc); enc->release(); }
-+			if (bpc != NULL) { color->setObject("BitsPerComponent", bpc); bpc->release(); }
-+			if (dr != NULL) { color->setObject("DynamicRange", dr); dr->release(); }
-+			if (cs != NULL) { color->setObject("ColorSpace", cs); cs->release(); }
-+			colors->setObject(color);
-+			setProperty("ColorElements", colors);
-+		}
-+		OSSafeReleaseNULL(color);
-+		OSSafeReleaseNULL(colors);
-+	}
- 	gMainFB = this;
- 	registerService();
- 	IOLog("SWEET FB: AppleCLCD %ux%u stride %u at 0x%llx, default surface %u, presented as %ux%u (direct=%d)\n",
-@@ -283,9 +322,32 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
- 		nanoseconds_to_absolutetime(SWEET_FB_VSYNC_US * 1000ULL, &fb->fVsyncAbs);
- 		fb->fNextVsync = now;
- 	}
--	fb->fNextVsync += fb->fVsyncAbs;
--	if (fb->fNextVsync <= now) {
--		fb->fNextVsync = now + fb->fVsyncAbs;
-+	uint64_t vsync_ts = now, period = fb->fVsyncAbs, te_abs = 0, te_period = 0;
-+	if (fb->fFlushTicks == 1 && sweet_gpu_te_phase(now, &te_abs, &te_period)) {
-+		period = te_period;
-+		fb->fVsyncAbs = te_period;
-+		if (now > te_abs && (now - te_abs) > (te_period - (te_period >> 3))) {
-+			te_abs += te_period;
-+		}
-+		if (te_abs <= fb->fLastTE) {
-+			te_abs = fb->fLastTE + period;
-+		}
-+		fb->fLastTE = te_abs;
-+		vsync_ts = te_abs;
-+		/* Wake ~200 us (3840 XO ticks) after the next physical panel TE edge. */
-+		fb->fNextVsync = te_abs + period + 3840ULL;
-+		if (fb->fNextVsync <= now + 1920ULL) {
-+			fb->fNextVsync = now + period;
-+		}
-+	} else {
-+		fb->fNextVsync += fb->fVsyncAbs;
-+		if (fb->fNextVsync <= now) {
-+			fb->fNextVsync = now + fb->fVsyncAbs;
-+		}
-+		if (vsync_ts <= fb->fLastTE) {
-+			vsync_ts = fb->fLastTE + period;
-+		}
-+		fb->fLastTE = vsync_ts;
- 	}
- 	sender->wakeAtTime(fb->fNextVsync);
- 	if ((count % 300) == 0) {
-@@ -302,14 +364,12 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
- 		fb->fStatPresentAbs = 0;
- 	}
- 	/*
--	 * CA::WindowServer::IOMFBServer::vsync_callback(fb, a1, a2, a3, refcon): a1 only goes to kdebug, a2 is
--	 * the vsync's host time and a2 + a3 the next one (a3 = the refresh period, also CA's CVTimeStamp
--	 * videoRefreshPeriod). a3 was 0: CA saw every frame's deadline as already past.
-+	 * CA::WindowServer::IOMFBServer::vsync_callback(fb, a1, a2, a3, refcon):
-+	 * a2 + a3 are phase-locked to SDE INTF_1 hardware TE (59.88 Hz).
- 	 */
--	uint64_t period = fb->fVsyncAbs;
- 	uint64_t values[6] = {
- 		(uint32_t)count, (uint32_t)(count >> 32),
--		(uint32_t)now, (uint32_t)(now >> 32),
-+		(uint32_t)vsync_ts, (uint32_t)(vsync_ts >> 32),
- 		(uint32_t)period, (uint32_t)(period >> 32),
- 	};
- 
-@@ -326,6 +386,9 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
- 			fb->fFadeStep = step + 1;
- 		}
- 		IOLockUnlock(fb->fLock);
-+		if (step == 0 && fb->fGPU) {
-+			sweet_gpu_panel_fb0();
-+		}
- 		if (step <= 6) {
- 			for (uint32_t y = 0; y < fb->fHeight; y++) {
- 				volatile uint32_t *row = (volatile uint32_t *)(fb->fPixels + (uint64_t)y * fb->fRowBytes);
-@@ -595,8 +658,12 @@ AppleCLCD::presentGPU(const uint8_t *rec)
- 		IOLockUnlock(fLock);
- 		IOLog("SWEET FB: frames now scaled to fit by the GPU (panel stride %u)\n", fRowBytes);
- 	}
-+	uintptr_t cleanKva = (!s->gpuImported || s->cpuDirty) ? s->kernelAddress() : 0;
-+	if (cleanKva != 0) {
-+		s->cpuDirty = false;
-+	}
- 	uint32_t dx = 0, dy = 0, dw = 0, dh = 0;
--	int rc = sweet_gpu_present(slot, s->kernelAddress(), s->offset, s->width, s->height, s->bytesPerRow,
-+	int rc = sweet_gpu_present(slot, cleanKva, s->offset, s->width, s->height, s->bytesPerRow,
- 	    fRowBytes, fCornerRadius, &dx, &dy, &dw, &dh);
- 	s->release();
- 	if (rc) {
-@@ -789,6 +856,10 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
- 	uint64_t out[2] = { 0, 0 };
- 	uint32_t outCount = 0;
- 
-+	if (args->structureOutputDescriptor == NULL && args->structureOutput != NULL) {
-+		bzero(args->structureOutput, args->structureOutputSize);
-+	}
-+
- 	switch (selector) {
- 	case kSweetFBGetLayerDefaultSurface:
- 		out[0] = sweet_surface_port_in_task(fFB->fSurface, fTask);
-@@ -857,6 +928,20 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
- 			IOLog("SWEET FB: display %s\n", off ? "off" : "on");
- 		}
- 		break;
-+	case kSweetFBGetCurrentAbsoluteTime:
-+		out[0] = mach_absolute_time();
-+		outCount = 1;
-+		break;
-+	case kSweetFBGetBlock:
-+		if (args->structureOutputDescriptor == NULL && args->structureOutput != NULL &&
-+		    args->structureOutputSize >= 16) {
-+			uint32_t *blk = (uint32_t *)args->structureOutput;
-+			blk[0] = 1;
-+			blk[1] = fFB->fLogicalW;
-+			blk[2] = fFB->fLogicalH;
-+			blk[3] = 60u << 16;
-+		}
-+		break;
- 	case kSweetFBSwapWait:
- 	default:
- 		break;
-@@ -865,9 +950,6 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
- 	for (uint32_t i = 0; i < args->scalarOutputCount; i++) {
- 		args->scalarOutput[i] = i < outCount ? out[i] : 0;
- 	}
--	if (args->structureOutputDescriptor == NULL && args->structureOutput != NULL) {
--		bzero(args->structureOutput, args->structureOutputSize);
--	}
- 	if (selector >= 64 || !(sweet_fb_logged & (1ULL << selector))) {
- 		if (selector < 64) {
- 			sweet_fb_logged |= 1ULL << selector;
 diff --git a/iokit/Kernel/arm/SweetKeyStore.cpp b/iokit/Kernel/arm/SweetKeyStore.cpp
 index 73d9267..5039e86 100644
 --- a/iokit/Kernel/arm/SweetKeyStore.cpp
@@ -1784,7 +1074,7 @@ index 73d9267..5039e86 100644
  }
  #endif /* SWEET */
 diff --git a/iokit/Kernel/arm/SweetSurface.cpp b/iokit/Kernel/arm/SweetSurface.cpp
-index 6c2f4aa..e5de6e8 100644
+index 6c2f4aa..985c9b8 100644
 --- a/iokit/Kernel/arm/SweetSurface.cpp
 +++ b/iokit/Kernel/arm/SweetSurface.cpp
 @@ -80,7 +80,7 @@ static uint32_t      sweet_surface_users[SWEET_SURFACE_MAX_ID];
@@ -1796,105 +1086,6 @@ index 6c2f4aa..e5de6e8 100644
  
  OSDefineMetaClassAndStructors(SweetSurface, OSObject);
  
-@@ -190,6 +190,22 @@ sweet_surface_copy(uint32_t id)
- 	return s;
- }
- 
-+void
-+sweet_surface_mark_gpu_import(addr64_t first_pa)
-+{
-+	if (first_pa == 0 || sweet_surface_lock == NULL) {
-+		return;
-+	}
-+	IOLockLock(sweet_surface_lock);
-+	for (uint32_t id = 1; id < SWEET_SURFACE_MAX_ID; id++) {
-+		SweetSurface *s = sweet_surface_table[id];
-+		if (s != NULL && s->firstPA == first_pa) {
-+			s->gpuImported = true;
-+		}
-+	}
-+	IOLockUnlock(sweet_surface_lock);
-+}
-+
- /* The table lock; the framebuffer may publish a surface before the root starts. */
- static void
- sweet_surface_init_lock(void)
-@@ -246,7 +262,9 @@ sweet_surface_create_physical(uint64_t phys, uint32_t width, uint32_t height,
- 	s->elementWidth = s->elementHeight = 1;
- 	s->pixelFormat = pixelFormat;
- 	s->allocSize = (uint32_t)round_page(bytesPerRow * height);
--	s->memory = IOMemoryDescriptor::withPhysicalAddress(phys, s->allocSize, kIODirectionInOut);
-+	s->memory = IOMemoryDescriptor::withAddressRange((mach_vm_address_t)phys, s->allocSize,
-+	    kIODirectionInOut | kIOMemoryTypePhysical64, TASK_NULL);
-+	s->firstPA = phys;
- 	s->mapCache = kIOMapWriteCombineCache;
- 	if (s->memory == NULL || !sweet_surface_publish(s)) {
- 		s->release();
-@@ -800,6 +818,9 @@ IOSurfaceRootUserClient::create(IOExternalMethodArguments *args)
- 		} else {
- 			bzero(mem->getBytesNoCopy(), s->allocSize);
- 			s->memory = mem;
-+			IOByteCount seg0 = 0;
-+			s->firstPA = mem->getPhysicalSegment(0, &seg0, kIOMemoryMapperNone);
-+			s->cpuDirty = true;
- 			s->mapCache = kIOMapDefaultCache;
- 			if (!sweet_surface_publish(s)) {
- 				ret = kIOReturnNoResources;
-@@ -988,13 +1009,16 @@ sweet_surface_held(IOLock *lock, OSArray *refs, uint32_t id)
- }
- 
- IOReturn
--IOSurfaceRootUserClient::trapLock(void *id, __unused void *options, void *seedOut,
-+IOSurfaceRootUserClient::trapLock(void *id, void *options, void *seedOut,
-     void *, void *, void *)
- {
- 	SweetSurface *s = sweet_surface_held(fLock, fRefs, (uint32_t)(uintptr_t)id);
- 	if (s == NULL) {
- 		return kIOReturnNotFound;
- 	}
-+	if (!((uintptr_t)options & kIOSurfaceLockReadOnly)) {
-+		s->cpuDirty = true;
-+	}
- 	IOReturn ret = sweet_surface_seed_out(s, seedOut, false);
- 	s->release();
- 	return ret;
-@@ -1008,8 +1032,11 @@ IOSurfaceRootUserClient::trapUnlock(void *id, void *options, void *seedOut,
- 	if (s == NULL) {
- 		return kIOReturnNotFound;
- 	}
--	IOReturn ret = sweet_surface_seed_out(s, seedOut,
--	    !((uintptr_t)options & kIOSurfaceLockReadOnly));
-+	bool wrote = !((uintptr_t)options & kIOSurfaceLockReadOnly);
-+	if (wrote) {
-+		s->cpuDirty = true;
-+	}
-+	IOReturn ret = sweet_surface_seed_out(s, seedOut, wrote);
- 	s->release();
- 	return ret;
- }
-diff --git a/iokit/Kernel/arm/SweetSurface.h b/iokit/Kernel/arm/SweetSurface.h
-index 4ba58dc..dd320f2 100644
---- a/iokit/Kernel/arm/SweetSurface.h
-+++ b/iokit/Kernel/arm/SweetSurface.h
-@@ -40,6 +40,9 @@ public:
- 	IOOptionBits              mapCache;     /* cache mode for user mappings */
- 	IOBufferMemoryDescriptor *state;        /* shared state page, read-only for users */
- 	IOMemoryMap              *kernelMap;    /* lazily created for kernel copies */
-+	addr64_t                  firstPA;      /* first physical page for fast GPU import lookup */
-+	bool                      gpuImported;  /* imported into Adreno: rendered via DMA */
-+	bool                      cpuDirty;     /* written via CPU lock/create since last present */
- 
- 	bool init() APPLE_KEXT_OVERRIDE { return OSObject::init(); }
- 	void free() APPLE_KEXT_OVERRIDE;
-@@ -62,5 +65,8 @@ SweetSurface *sweet_surface_create_physical(uint64_t phys, uint32_t width,
- /* Send right for the surface in task (IOSurfaceLookupFromMachPort). */
- mach_port_name_t sweet_surface_port_in_task(SweetSurface *surface, task_t task);
- 
-+/* Mark any surface backed by first_pa as GPU-imported (skips redundant CPU dcache cleans on present). */
-+void sweet_surface_mark_gpu_import(addr64_t first_pa);
-+
- #endif /* SWEET */
- #endif /* _SWEET_SURFACE_H */
 diff --git a/iokit/Kernel/arm/hid/SweetHID.cpp b/iokit/Kernel/arm/hid/SweetHID.cpp
 index a9f0b6c..d824a3f 100644
 --- a/iokit/Kernel/arm/hid/SweetHID.cpp
@@ -2130,19 +1321,6 @@ index e9c9abf..338d924 100644
  
  
  #
-diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
-index 24f1abc..3121950 100644
---- a/osfmk/arm64/sleh.c
-+++ b/osfmk/arm64/sleh.c
-@@ -1882,7 +1882,7 @@ sleh_irq(arm_saved_state_t *state)
- 		cpu_signal_handler();
- 	} else {
- 		sleh_interrupt_handler_prologue(state, DBG_INTR_TYPE_OTHER);
--		if (cdp->interrupt_handler) {
-+		if (!sweet_gic_dispatch_spi(intid) && cdp->interrupt_handler) {
- 			cdp->interrupt_handler(cdp->interrupt_target,
- 			    cdp->interrupt_refCon,
- 			    cdp->interrupt_nub,
 diff --git a/osfmk/kern/sched_clutch.c b/osfmk/kern/sched_clutch.c
 index 3657d83..c69ea74 100644
 --- a/osfmk/kern/sched_clutch.c
@@ -2330,130 +1508,6 @@ index d2d12f3..274a515 100644
  #endif
  
  __END_DECLS
-diff --git a/pexpert/arm/pe_fiq.c b/pexpert/arm/pe_fiq.c
-index 6089db9..6dea53b 100644
---- a/pexpert/arm/pe_fiq.c
-+++ b/pexpert/arm/pe_fiq.c
-@@ -8,6 +8,7 @@
- #include <kern/clock.h>
- #include <mach/mach_time.h>
- #include <machine/atomic.h>
-+#include <os/atomic_private.h>
- #include <machine/machine_routines.h>
- #include <pexpert/device_tree.h>
- #include <pexpert/arm64/board_config.h>
-@@ -44,8 +45,111 @@ _gic_write32(vm_offset_t addr, uint32_t value)
- 	*((volatile uint32_t *) addr) = value;
- }
- 
-+#if defined(SWEET)
-+static void
-+_gic_write64(vm_offset_t addr, uint64_t value)
-+{
-+	*((volatile uint64_t *) addr) = value;
-+}
-+#endif
-+
- #define gicd_read32(offset) (_gic_read32(gicd_base + (offset)))
- #define gicd_write32(offset, data) (_gic_write32(gicd_base + (offset), (data)))
-+#if defined(SWEET)
-+#define gicd_write64(offset, data) (_gic_write64(gicd_base + (offset), (data)))
-+
-+#define SWEET_SPI_BASE  32u
-+#define SWEET_SPI_MAX   640u
-+
-+static struct {
-+	sweet_irq_fn_t fn;
-+	void *arg;
-+} sweet_spi_table[SWEET_SPI_MAX];
-+
-+static void
-+gicd_wait_rwp(void)
-+{
-+	while (gicd_read32(GICD_CTLR) & GICD_CTLR_RWP) {
-+		;
-+	}
-+}
-+
-+void
-+sweet_gic_mask_spi(unsigned int intid)
-+{
-+	if (gicd_base && intid >= SWEET_SPI_BASE && intid < SWEET_SPI_BASE + SWEET_SPI_MAX) {
-+		gicd_write32(GICD_ICENABLER + 4u * (intid / 32u), 1u << (intid % 32u));
-+		__builtin_arm_dsb(DSB_SY);
-+	}
-+}
-+
-+void
-+sweet_gic_unmask_spi(unsigned int intid)
-+{
-+	if (gicd_base && intid >= SWEET_SPI_BASE && intid < SWEET_SPI_BASE + SWEET_SPI_MAX) {
-+		gicd_write32(GICD_ISENABLER + 4u * (intid / 32u), 1u << (intid % 32u));
-+		__builtin_arm_dsb(DSB_SY);
-+	}
-+}
-+
-+void
-+sweet_gic_register_spi(unsigned int intid, int edge_rising, sweet_irq_fn_t fn, void *arg)
-+{
-+	if (!gicd_base || intid < SWEET_SPI_BASE || intid >= SWEET_SPI_BASE + SWEET_SPI_MAX) {
-+		return;
-+	}
-+	unsigned int idx = intid - SWEET_SPI_BASE;
-+	gicd_write32(GICD_ICENABLER + 4u * (intid / 32u), 1u << (intid % 32u));
-+	gicd_wait_rwp();
-+
-+	sweet_spi_table[idx].arg = arg;
-+	os_atomic_store(&sweet_spi_table[idx].fn, fn, release);
-+	if (fn == NULL) {
-+		return;
-+	}
-+
-+	/* SecurityExtn=1: GICD_IGROUPR reads as 0 from NS; write all Group 1 NS bits. */
-+	gicd_write32(GICD_IGROUPR + 4u * (intid / 32u), 0xFFFFFFFFu);
-+
-+	uint32_t pri_off = GICD_IPRIORITYR + 4u * (intid / 4u);
-+	uint32_t pri_shift = 8u * (intid % 4u);
-+	uint32_t pri = gicd_read32(pri_off);
-+	pri = (pri & ~(0xFFu << pri_shift)) | (0xA0u << pri_shift);
-+	gicd_write32(pri_off, pri);
-+
-+	uint32_t cfg_off = GICD_ICFGR + 4u * (intid / 16u);
-+	uint32_t cfg_shift = 2u * (intid % 16u);
-+	uint32_t cfg = gicd_read32(cfg_off);
-+	cfg = (cfg & ~(3u << cfg_shift)) | ((edge_rising ? 2u : 0u) << cfg_shift);
-+	gicd_write32(cfg_off, cfg);
-+
-+	/* Route SPI to cpu0 (MPIDR Aff=0). */
-+	gicd_write64(GICD_IROUTER + 8ULL * (uint64_t)intid, 0ULL);
-+	if (edge_rising) {
-+		gicd_write32(GICD_ICPENDR + 4u * (intid / 32u), 1u << (intid % 32u));
-+	}
-+	gicd_wait_rwp();
-+	gicd_write32(GICD_ISENABLER + 4u * (intid / 32u), 1u << (intid % 32u));
-+	__builtin_arm_dsb(DSB_SY);
-+}
-+
-+int
-+sweet_gic_dispatch_spi(unsigned int intid)
-+{
-+	if (intid >= SWEET_SPI_BASE && intid < SWEET_SPI_BASE + SWEET_SPI_MAX) {
-+		unsigned int idx = intid - SWEET_SPI_BASE;
-+		sweet_irq_fn_t fn = os_atomic_load(&sweet_spi_table[idx].fn, acquire);
-+		if (fn != NULL) {
-+			fn(sweet_spi_table[idx].arg);
-+			return 1;
-+		}
-+	}
-+	if (intid >= SWEET_SPI_BASE) {
-+		sweet_gic_mask_spi(intid);
-+	}
-+	return 0;
-+}
-+#endif /* SWEET */
- #define gicr_read32(offset) (_gic_read32(gicr_pe_base + (offset)))
- #define gicr_write32(offset, data) (_gic_write32(gicr_pe_base + (offset), (data)))
- #define gicr_read64(offset) (_gic_read64(gicr_pe_base + (offset)))
 diff --git a/pexpert/pexpert/arm64/SWEET.h b/pexpert/pexpert/arm64/SWEET.h
 index fdc987d..fdb4be2 100644
 --- a/pexpert/pexpert/arm64/SWEET.h
