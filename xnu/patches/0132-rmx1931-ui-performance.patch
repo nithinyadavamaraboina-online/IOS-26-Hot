@@ -54,35 +54,6 @@ index 89481fa..d402785 100644
  void rmx1931_touch_init(void);
  
  /* QUPv3 wrapper 2 SE0 (/soc/i2c@0xc80000), GCC, and TLMM SOUTH tile */
-@@ -44,12 +48,15 @@ void rmx1931_touch_init(void);
- #define RMX_GCC_BITS    0x1fu           /* wrap2 core, s_ahb, m_ahb, core_2x, s0 */
- #define RMX_RCG         0x1e148u        /* gcc_qupv3_wrap2_s0_clk_src */
- 
--#define RMX_GPIO_CFG(n) ((uint32_t)(n) * 0x1000u)
--#define RMX_GPIO_IO(n)  (RMX_GPIO_CFG(n) + 4u)
-+#define RMX_GPIO_CFG(n)         ((uint32_t)(n) * 0x1000u)
-+#define RMX_GPIO_IO(n)          (RMX_GPIO_CFG(n) + 4u)
-+#define RMX_GPIO_INTR_CFG(n)    (RMX_GPIO_CFG(n) + 8u)
-+#define RMX_GPIO_INTR_STATUS(n) (RMX_GPIO_CFG(n) + 12u)
- #define RMX_PIN_RESET   54u             /* active-low reset */
- #define RMX_PIN_SDA     55u             /* qup17 function 1 */
- #define RMX_PIN_SCL     56u             /* qup17 function 1 */
- #define RMX_PIN_IRQ     122u            /* active-low ATTN */
-+#define RMX_TLMM_INTID  240u            /* SM8150 TLMM summary IRQ (GIC SPI 208) */
- 
- /* SPMI Arbiter v5 for PM8150L (SID 4) GPIO5 (0xc400, PPID 0x4c4 = enable1v8_gpio) */
- #define RMX_SPMI_CORE   0x0c440000u
-@@ -111,7 +118,9 @@ static struct {
- 	vm_offset_t se, gcc, gpio;
- 	vm_offset_t sp_core, sp_cnfg, sp_obs, sp_ch;
- 	uint16_t sp_apid;
--	bool started, dead, bitbang;
-+	bool started, dead, bitbang, use_irq;
-+	volatile bool irq_armed;
-+	unsigned irq_spurious;
- 	int log, i2c_100k, force_gpio;
- 	uint32_t irq_status, irq_last, active;
- 	unsigned sent, got;
 @@ -524,10 +533,20 @@ rmx_msg(const uint8_t *tx, unsigned nt, uint8_t *rx, unsigned nr, bool stretch)
  
  /* ---- Open-drain TLMM GPIO I2C fallback (GPIO55=SDA, GPIO56=SCL) ---- */
@@ -114,30 +85,10 @@ index 89481fa..d402785 100644
  	}
  	return false;
  }
-@@ -879,25 +898,46 @@ rmx_rmi_init(void)
+@@ -879,25 +886,26 @@ rmx_rmi_init(void)
  	return true;
  }
  
-+static void
-+rmx_tlmm_irq(void *arg __unused)
-+{
-+	if (!rt.gpio) {
-+		return;
-+	}
-+	if (rmx_rd(rt.gpio, RMX_GPIO_INTR_STATUS(RMX_PIN_IRQ)) & 1u) {
-+		/* IRQF_ONESHOT: mask active-low GPIO 122 until ATTN is cleared in rmx_thread. */
-+		rmx_wr(rt.gpio, RMX_GPIO_INTR_CFG(RMX_PIN_IRQ), 0x90u);
-+		rmx_wr(rt.gpio, RMX_GPIO_INTR_STATUS(RMX_PIN_IRQ), 0u);
-+		rt.irq_armed = false;
-+		rt.irq_spurious = 0;
-+		thread_wakeup((event_t)&rmx_sleep_chan);
-+	} else if (++rt.irq_spurious > 8u) {
-+		/* Another TLMM pin left unmasked by ABL: fall back to ATTN pin polling cleanly. */
-+		rt.use_irq = false;
-+		sweet_gic_mask_spi(RMX_TLMM_INTID);
-+	}
-+}
-+
  static void
  rmx_release_all(void)
  {
@@ -206,46 +157,23 @@ index 89481fa..d402785 100644
  	rt.active = new_active;
  	return 0;
  }
-@@ -1025,14 +1065,19 @@ rmx_thread(void *arg, wait_result_t result)
+@@ -1025,8 +1029,8 @@ rmx_thread(void *arg, wait_result_t result)
  	if (!rmx_rmi_init()) {
  		goto out;
  	}
 -	printf("RMX TOUCH: Synaptics S3706 ready (%ux%u, 10 fingers, poll=4ms/8ms)\n",
 -	    RMX_PANEL_W, RMX_PANEL_H);
-+	rt.use_irq = true;
-+	rmx_wr(rt.gpio, RMX_GPIO_INTR_CFG(RMX_PIN_IRQ), 0x90u);
-+	rmx_wr(rt.gpio, RMX_GPIO_INTR_STATUS(RMX_PIN_IRQ), 0u);
-+	sweet_gic_register_spi(RMX_TLMM_INTID, 0, rmx_tlmm_irq, NULL);
-+	printf("RMX TOUCH: Synaptics S3706 ready (%ux%u, 10 fingers, 400kHz + TLMM IRQ %u)\n",
-+	    RMX_PANEL_W, RMX_PANEL_H, RMX_TLMM_INTID);
++	printf("RMX TOUCH: Synaptics S3706 ready (%ux%u, 10 fingers, 400kHz poll=4ms/8ms)\n",
++	    RMX_PANEL_W, RMX_PANEL_H);
  
  	unsigned errors = 0, logged_events = 0, ticks = 0;
  	while (!rt.dead) {
- 		bool irq_low = (rmx_rd(rt.gpio, RMX_GPIO_IO(RMX_PIN_IRQ)) & 1u) == 0;
--		bool periodic = (++ticks % 125u) == 0;
--		if (irq_low || rt.active || periodic) {
-+		++ticks;
-+		bool safety = rt.active ? ((ticks & 15u) == 0) : ((ticks % 125u) == 0);
-+		if (irq_low || safety) {
- 			err = rmx_poll_once(&logged_events);
- 			if (err) {
- 				if ((errors++ % 100u) == 0) {
-@@ -1044,8 +1089,17 @@ rmx_thread(void *arg, wait_result_t result)
- 			} else {
+@@ -1045,7 +1049,7 @@ rmx_thread(void *arg, wait_result_t result)
  				errors = 0;
  			}
-+			irq_low = (rmx_rd(rt.gpio, RMX_GPIO_IO(RMX_PIN_IRQ)) & 1u) == 0;
-+		}
-+		if (irq_low) {
-+			continue;
-+		}
-+		if (rt.use_irq && !rt.irq_armed) {
-+			rmx_wr(rt.gpio, RMX_GPIO_INTR_STATUS(RMX_PIN_IRQ), 0u);
-+			rt.irq_armed = true;
-+			rmx_wr(rt.gpio, RMX_GPIO_INTR_CFG(RMX_PIN_IRQ), 0x91u);
  		}
 -		rmx_wait((irq_low || rt.active) ? 4 : 8);
-+		rmx_wait(rt.active ? 4 : (rt.use_irq ? 16 : 8));
++		rmx_wait(rt.active ? 4 : 8);
  	}
  	rmx_release_all();
  out:
@@ -361,22 +289,6 @@ diff --git a/bsd/dev/sweet_a6xx.h b/bsd/dev/sweet_a6xx.h
 index e4f04ef..311b620 100644
 --- a/bsd/dev/sweet_a6xx.h
 +++ b/bsd/dev/sweet_a6xx.h
-@@ -45,11 +45,14 @@
- 
- #define A6_GVA_POOL		0x10000000ull
- #define A6_GVA_FB		0x20000000ull
-+#define A6_GVA_FB2		0x20a00000ull
- #define A6_RING_SIZE		0x8000u
- #define A6_RING_DW		(A6_RING_SIZE / 4)
- 
- #define A6_FB_PA		0x9d000000ull
--#define A6_FB_SIZE		0xa00000ull	/* mapped for the GPU: 5 x 2 MB */
-+#define A6_FB2_PA		0x9da00000ull
-+#define A6_FB_STRIDE_PA		0xa00000ull
-+#define A6_FB_SIZE		0x1400000ull	/* 20 MB mapped for FB0 + FB1 double-buffering */
- 
- #define A6_GPU_ID		640
- #define A6_CHIP_ID		0x06040001ull
 @@ -124,6 +127,8 @@ void a6_unmap_high(struct a6_gpu *g);	/* drop all mappings above 1 GB, reset the
  void a6_tlb_flush(const struct a6_gpu *g);
  int a6_clear_fault(const struct a6_gpu *g);	/* 1 if an SMMU fault was cleared */
@@ -396,59 +308,6 @@ index e4f04ef..311b620 100644
  uint32_t a6_blit_ib(const struct a6_gpu *g, const struct a6_blit *b, uint32_t *dw);
  
  #define A6_CP_NOP		0x10
-diff --git a/bsd/dev/sweet_cpufreq.c b/bsd/dev/sweet_cpufreq.c
-index 82097a3..5080efc 100644
---- a/bsd/dev/sweet_cpufreq.c
-+++ b/bsd/dev/sweet_cpufreq.c
-@@ -15,6 +15,7 @@
- #include <pexpert/pexpert.h>
- 
- extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
-+extern int sweet_rpmh_write(const char *res, unsigned n, const uint32_t *offsets, const uint32_t *values);
- void sweet_cpufreq_init(void);
- 
- #define OSM_FREQ_REG    0x110u          /* + 32 * index */
-@@ -26,10 +27,12 @@ void sweet_cpufreq_init(void);
- static const struct {
- 	const char *name;
- 	uint32_t pa;
-+	bool skip_boost;
- } osm_clusters[] = {
--	{"pwrcl (A55 x4)", 0x18323000u},
--	{"perfcl (A76 x3)", 0x18325800u},
--	{"perfpcl (A76 prime)", 0x18327800u},
-+	{"l3 (shared DynamIQ)", 0x18321000u, false},
-+	{"pwrcl (A55 x4)", 0x18323000u, true},
-+	{"perfcl (A76 x3)", 0x18325800u, true},
-+	{"perfpcl (A76 prime)", 0x18327800u, false},
- };
- 
- static uint32_t
-@@ -68,8 +71,8 @@ sweet_cpufreq_init(void)
- 				len += snprintf(line + len, sizeof(line) - len, " %u%s", khz / 1000,
- 				    cores == 1 ? "*" : "");
- 			}
--			/* core count 1 = single-core boost entry: skip, as Linux does */
--			if (cores == 1 || (want > 1 && khz / 1000 > want)) {
-+			/* Multi-core clusters skip single-core boost rows; Prime & L3 only have 1 domain. */
-+			if ((osm_clusters[c].skip_boost && cores == 1) || (want > 1 && khz / 1000 > want)) {
- 				continue;
- 			}
- 			if (khz > best_khz) {
-@@ -88,5 +91,13 @@ sweet_cpufreq_init(void)
- 		printf("SWEET CPUFREQ: %s index %u -> %u (%u MHz), reads back %u\n",
- 		    osm_clusters[c].name, cur, best, best_khz / 1000, osm_rd(base, OSM_DESIRED));
- 	}
-+	if (want != 0) {
-+		static const char *const bcms[] = { "MC0", "SH0", "SN0", "CN0" };
-+		for (unsigned i = 0; i < sizeof(bcms) / sizeof(bcms[0]); ++i) {
-+			uint32_t off = 0, val = (1u << 30) | (1u << 29) | (0x3fffu << 14) | 0x3fffu;
-+			int rc = sweet_rpmh_write(bcms[i], 1, &off, &val);
-+			printf("SWEET CPUFREQ: RPMh BCM %s peak vote -> %d\n", bcms[i], rc);
-+		}
-+	}
- }
- #endif /* ARM64_BOARD_CONFIG_SWEET */
 diff --git a/bsd/dev/sweet_gpu.c b/bsd/dev/sweet_gpu.c
 index cdb1adc..54a0d1d 100644
 --- a/bsd/dev/sweet_gpu.c
@@ -463,18 +322,16 @@ index cdb1adc..54a0d1d 100644
  #include <libkern/libkern.h>
  #include <mach/mach_time.h>
  #include "sweet_a6xx.h"
-@@ -51,6 +54,10 @@ int sweet_gpu_present(int slot, uintptr_t kva, uint32_t offset, uint32_t w, uint
+@@ -51,6 +54,8 @@ int sweet_gpu_present(int slot, uintptr_t kva, uint32_t offset, uint32_t w, uint
  	uint32_t fb_pitch, uint32_t corner_radius, uint32_t *out_dx, uint32_t *out_dy,
  	uint32_t *out_dw, uint32_t *out_dh);
  void sweet_gpu_panel_stride(uint32_t stride);
-+void sweet_gpu_panel_fb0(void);
-+bool sweet_gpu_te_phase(uint64_t now, uint64_t *last_te_abs, uint64_t *period_abs);
 +bool sweet_gpu_fence_done(uint32_t fence);
 +int sweet_gpu_wait_fence_ns(uint32_t fence, uint64_t timeout_ns);
  int sweet_gpu_map_user(uint64_t *iova_out, const uint64_t *pages, uint32_t npages, uint32_t page_size);
  int sweet_gpu_submit_user(uint64_t ib_iova, uint32_t dwords, uint32_t timeout_ms, uint32_t *fence_out);
  
-@@ -61,11 +68,18 @@ volatile uint32_t sweet_backlight_alpha;
+@@ -61,11 +66,13 @@ volatile uint32_t sweet_backlight_alpha;
  
  static struct a6_gpu gpu;
  static vm_offset_t pool_kva;
@@ -487,15 +344,10 @@ index cdb1adc..54a0d1d 100644
  static volatile bool gpu_ready;
 +#define SWEET_GPU_INTID 332u
 +static uint32_t _Atomic gpu_done_fence;
-+static uint32_t _Atomic active_fb;
-+static uint32_t _Atomic pending_flip_fence;
-+static volatile uint32_t pending_flip_buf;
-+static uint32_t fb_cleared_mask;
-+static uint64_t last_fit_key;
  static LCK_GRP_DECLARE(sweet_gpu_grp, "sweet_gpu");
  static LCK_MTX_DECLARE(sweet_gpu_lock, &sweet_gpu_grp);
  
-@@ -253,21 +267,51 @@ gpu_bus_vote(void)
+@@ -253,21 +267,48 @@ gpu_bus_vote(void)
  	}
  }
  
@@ -511,8 +363,6 @@ index cdb1adc..54a0d1d 100644
 +	return prev;
 +}
 +
-+static void gpu_check_flip(uint32_t done);
-+
 +static void
 +gpu_irq_handler(void *arg __unused)
 +{
@@ -520,8 +370,7 @@ index cdb1adc..54a0d1d 100644
 +		return;
 +	}
 +	(void)a6_irq_ack();
-+	uint32_t done = gpu_sync_done_fence();
-+	gpu_check_flip(done);
++	(void)gpu_sync_done_fence();
 +	thread_wakeup((event_t)&gpu_done_fence);
 +}
 +
@@ -549,97 +398,21 @@ index cdb1adc..54a0d1d 100644
  	(void)thread_terminate(current_thread());
  	thread_block(THREAD_CONTINUE_NULL);
  }
-@@ -445,6 +489,9 @@ gpu_recover_locked(const char *why)
+@@ -445,6 +485,8 @@ gpu_recover_locked(const char *why)
  		gpu_ready = false;
  	}
  	a6_fence_force(&gpu);
-+	os_atomic_store(&pending_flip_fence, 0u, release);
 +	os_atomic_store(&gpu_done_fence, gpu.fence, release);
 +	thread_wakeup((event_t)&gpu_done_fence);
  	progress_fence = gpu.fence;
  	progress_abs = mach_absolute_time();
  }
-@@ -453,13 +500,89 @@ gpu_recover_locked(const char *why)
+@@ -453,13 +493,14 @@ gpu_recover_locked(const char *why)
  
  #define MDP             0x0ae00000ULL
  #define SSPP_VIG(n)     (MDP + 0x5000 + 0x2000ULL * (n))
-+#define SSPP_SRC0_ADDR  0x14
  #define SSPP_YSTRIDE0   0x24
  #define CTL0_FLUSH      (MDP + 0x2000 + 0x18)
-+#define MDP_INTF1       (MDP + 0x6b800ULL)
-+#define INTF_TEAR_EN        0x284
-+#define INTF_TEAR_VSYNC_CFG 0x288
-+#define INTF_TEAR_INIT_VAL  0x294
-+#define INTF_TEAR_INT_COUNT 0x298
-+
-+static void
-+gpu_check_flip(uint32_t done)
-+{
-+	uint32_t pf = os_atomic_load(&pending_flip_fence, acquire);
-+	if (pf != 0 && (int32_t)(done - pf) >= 0) {
-+		uint32_t buf = pending_flip_buf & 1u;
-+		if (os_atomic_cmpxchg(&pending_flip_fence, pf, 0u, acq_rel)) {
-+			uint32_t pa = (uint32_t)(buf ? A6_FB2_PA : A6_FB_PA);
-+			a6_wr(SSPP_VIG(0) + SSPP_SRC0_ADDR, pa);
-+			a6_wr(SSPP_VIG(1) + SSPP_SRC0_ADDR, pa);
-+			a6_wr(CTL0_FLUSH, 0x3);
-+			os_atomic_store(&active_fb, buf, release);
-+		}
-+	}
-+}
-+
-+void
-+sweet_gpu_panel_fb0(void)
-+{
-+	(void)gpu_io(MDP);
-+	os_atomic_store(&pending_flip_fence, 0u, release);
-+	a6_wr(SSPP_VIG(0) + SSPP_SRC0_ADDR, (uint32_t)A6_FB_PA);
-+	a6_wr(SSPP_VIG(1) + SSPP_SRC0_ADDR, (uint32_t)A6_FB_PA);
-+	a6_wr(CTL0_FLUSH, 0x3);
-+	os_atomic_store(&active_fb, 0u, release);
-+}
-+
-+/*
-+ * Read SDE INTF_1 hardware tear-check counter (clocked by the same 19.2 MHz XO
-+ * as mach_absolute_time) and return the exact host timestamp of the most recent
-+ * panel TE edge plus the panel refresh period (~320,641 ticks = 59.88 Hz).
-+ */
-+bool
-+sweet_gpu_te_phase(uint64_t now, uint64_t *last_te_abs, uint64_t *period_abs)
-+{
-+	static uint64_t tracked_period = 320641ULL;
-+	static uint64_t prev_te;
-+	(void)gpu_io(MDP);
-+	if (gpu_ready) {
-+		gpu_check_flip(gpu_sync_done_fence());
-+	}
-+	if ((a6_rd(MDP_INTF1 + INTF_TEAR_EN) & 1u) == 0) {
-+		return false;
-+	}
-+	uint32_t vcfg = a6_rd(MDP_INTF1 + INTF_TEAR_VSYNC_CFG) & 0xffffu;
-+	uint32_t init = a6_rd(MDP_INTF1 + INTF_TEAR_INIT_VAL) & 0xffffu;
-+	uint32_t icnt = a6_rd(MDP_INTF1 + INTF_TEAR_INT_COUNT) & 0xffffu;
-+	if (vcfg < 16u || vcfg > 1024u || icnt < init) {
-+		return false;
-+	}
-+	uint64_t elapsed = (uint64_t)(icnt - init) * (uint64_t)vcfg;
-+	if (elapsed > 400000ULL || elapsed > now) {
-+		return false;
-+	}
-+	uint64_t te = now - elapsed;
-+	if (prev_te != 0 && te > prev_te) {
-+		uint64_t delta = te - prev_te;
-+		if (delta >= 280000ULL && delta <= 360000ULL) {
-+			tracked_period = (tracked_period * 7ULL + delta) >> 3;
-+		}
-+	}
-+	if (prev_te == 0 || te > prev_te + 160000ULL) {
-+		prev_te = te;
-+	}
-+	*last_te_abs = te;
-+	*period_abs = tracked_period;
-+	return true;
-+}
  
  /* ABL scans out through VIG0 + VIG1 (540 columns each); autorefresh picks a flushed change up. */
  void
@@ -666,7 +439,7 @@ index cdb1adc..54a0d1d 100644
  		lck_mtx_lock(&sweet_gpu_lock);
  	}
  	return 0;
-@@ -649,13 +773,25 @@ sweet_gpu_present(int s, uintptr_t kva, uint32_t offset, uint32_t w, uint32_t h,
+@@ -649,13 +690,14 @@ sweet_gpu_present(int s, uintptr_t kva, uint32_t offset, uint32_t w, uint32_t h,
  	if (dim > 240) {
  		dim = 240;
  	}
@@ -678,28 +451,17 @@ index cdb1adc..54a0d1d 100644
 -		 * then copy the finished rectangle to A6_GVA_FB in a single pass.
 -		 */
 +	/*
-+	 * True SDE hardware double-buffering (FB0 @ 0x9d000000, FB1 @ 0x9da00000) +
-+	 * coalesced single-setup 2D blit stream: render scale + optional dim + optional
-+	 * corner mattes directly into the offscreen backbuffer with zero staging copies,
-+	 * then flip VIG0/VIG1 + CTL0_FLUSH in gpu_irq_handler the microsecond the fence lands.
++	 * Coalesced single-setup 2D blit stream into A6_GVA_FB: render scale + optional dim +
++	 * optional corner mattes directly to the mapped panel buffer in a single submission.
 +	 */
-+	gpu_check_flip(gpu_sync_done_fence());
 +	uint32_t k = present_next & 1u;
 +	int rc = present_wait_locked(k, "present");
 +	if (rc == 0) {
-+		uint32_t front = os_atomic_load(&active_fb, acquire) & 1u;
-+		uint32_t back = 1u - front;
-+		uint64_t dst_fb = back ? A6_GVA_FB2 : A6_GVA_FB;
-+		uint64_t fit_key = ((uint64_t)frame.dx << 48) | ((uint64_t)frame.dy << 32) |
-+		    ((uint64_t)frame.dw << 16) | (uint64_t)frame.dh;
-+		if (fit_key != last_fit_key) {
-+			last_fit_key = fit_key;
-+			fb_cleared_mask = 0;
-+		}
++		uint64_t dst_fb = A6_GVA_FB;
  		if (!display_dim_built) {
  			display_dim_build();
  		}
-@@ -663,18 +799,32 @@ sweet_gpu_present(int s, uintptr_t kva, uint32_t offset, uint32_t w, uint32_t h,
+@@ -663,18 +699,21 @@ sweet_gpu_present(int s, uintptr_t kva, uint32_t offset, uint32_t w, uint32_t h,
  			display_mask_build(corner_radius, ext);
  			display_mask_radius = corner_radius;
  		}
@@ -716,17 +478,6 @@ index cdb1adc..54a0d1d 100644
 -		};
 -		n += a6_blit_ib(&gpu, &dim_blit, ib + n);
 +		uint32_t n = a6_blit_begin(&gpu, ib);
-+		if (!(fb_cleared_mask & (1u << back))) {
-+			struct a6_blit clr = {
-+				.src_iova = A6_GVA_POOL + DISPLAY_DIM_OFF + 255ULL * DISPLAY_DIM_STRIDE,
-+				.src_w = DISPLAY_DIM_TILE, .src_h = DISPLAY_DIM_TILE, .src_pitch = DISPLAY_DIM_PITCH,
-+				.sw = DISPLAY_DIM_TILE, .sh = DISPLAY_DIM_TILE,
-+				.dst_iova = dst_fb, .dst_pitch = fb_pitch,
-+				.dx = 0, .dy = 0, .dw = PANEL_W, .dh = PANEL_H,
-+			};
-+			n += a6_blit_op(&gpu, &clr, ib + n);
-+			fb_cleared_mask |= (1u << back);
-+		}
 +		struct a6_blit bmain = frame;
 +		bmain.dst_iova = dst_fb;
 +		n += a6_blit_op(&gpu, &bmain, ib + n);
@@ -744,7 +495,7 @@ index cdb1adc..54a0d1d 100644
  		if (ext) {
  			uint32_t top = frame.dy, bottom = frame.dy + frame.dh - ext;
  			for (uint32_t corner = 0; corner < 4; corner++) {
-@@ -683,86 +833,28 @@ sweet_gpu_present(int s, uintptr_t kva, uint32_t offset, uint32_t w, uint32_t h,
+@@ -683,87 +725,22 @@ sweet_gpu_present(int s, uintptr_t kva, uint32_t offset, uint32_t w, uint32_t h,
  					.src_w = DISPLAY_MASK_DIM, .src_h = DISPLAY_MASK_DIM, .src_pitch = DISPLAY_MASK_PITCH,
  					.sx = (corner & 1) * DISPLAY_MASK_SIDE, .sy = (corner >> 1) * DISPLAY_MASK_SIDE,
  					.sw = ext, .sh = ext,
@@ -834,17 +585,11 @@ index cdb1adc..54a0d1d 100644
 +		uint32_t f = a6_submit_ib_async(&gpu, a6_pool_va(PRESENT_IB(k)), n, 100);
 +		present_fence[k] = f;
 +		gpu_owner_locked(f, 0);
-+		if (f != 0) {
-+			pending_flip_buf = back;
-+			os_atomic_store(&pending_flip_fence, f, release);
-+			gpu_check_flip(gpu_sync_done_fence());
-+			rc = 0;
-+		} else {
-+			rc = -1;
-+		}
++		rc = (f != 0) ? 0 : -1;
  		present_next++;
  	}
  	lck_mtx_unlock(&sweet_gpu_lock);
+
 @@ -920,17 +1012,14 @@ sweet_gpu_submit_user_async(uint64_t ib_iova, uint32_t dwords)
  int
  sweet_gpu_wait_fence(uint32_t fence, uint32_t timeout_ms)
@@ -1558,15 +1303,6 @@ diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFrame
 index 668fb3a..93fc4fb 100644
 --- a/iokit/Kernel/arm/SweetFramebuffer.cpp
 +++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
-@@ -48,6 +48,8 @@ int sweet_gpu_present(int slot, uintptr_t kva, uint32_t offset, uint32_t w, uint
- 	uint32_t fb_pitch, uint32_t corner_radius, uint32_t *out_dx, uint32_t *out_dy,
- 	uint32_t *out_dw, uint32_t *out_dh);
- void sweet_gpu_panel_stride(uint32_t stride);
-+void sweet_gpu_panel_fb0(void);
-+bool sweet_gpu_te_phase(uint64_t now, uint64_t *last_te_abs, uint64_t *period_abs);
- extern int sweet_display_fit_x, sweet_display_fit_y, sweet_display_fit_w, sweet_display_fit_h;
- extern volatile uint32_t sweet_backlight_alpha;
- }
 @@ -78,6 +80,8 @@ enum {
  	kSweetFBIsMainDisplay           = 18,
  	kSweetFBGetDotPitch             = 28,
@@ -1576,14 +1312,6 @@ index 668fb3a..93fc4fb 100644
  };
  
  #define SWEET_FB_SWAP_REC_SIZE          0x46c
-@@ -114,6 +118,7 @@ class AppleCLCD : public IOMobileFramebuffer {
- 	uint64_t            fVsyncCount;
- 	uint64_t            fNextVsync;     /* absolute deadline of the next tick */
- 	uint64_t            fVsyncAbs;      /* tick period in absolute time units */
-+	uint64_t            fLastTE;        /* last monotonic TE timestamp sent to CA */
- 	uint64_t            fStatSwaps, fStatPresents, fStatPresentAbs;
- 
- 	static void vsyncFired(OSObject *owner, IOTimerEventSource *sender);
 @@ -251,14 +256,14 @@ AppleCLCD::start(IOService *provider)
  		IOLog("SWEET FB: no vsync timer\n");
  		return false;
@@ -1600,70 +1328,6 @@ index 668fb3a..93fc4fb 100644
  	gMainFB = this;
  	registerService();
  	IOLog("SWEET FB: AppleCLCD %ux%u stride %u at 0x%llx, default surface %u, presented as %ux%u (direct=%d)\n",
-@@ -283,9 +322,32 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
- 		nanoseconds_to_absolutetime(SWEET_FB_VSYNC_US * 1000ULL, &fb->fVsyncAbs);
- 		fb->fNextVsync = now;
- 	}
--	fb->fNextVsync += fb->fVsyncAbs;
--	if (fb->fNextVsync <= now) {
--		fb->fNextVsync = now + fb->fVsyncAbs;
-+	uint64_t vsync_ts = now, period = fb->fVsyncAbs, te_abs = 0, te_period = 0;
-+	if (fb->fFlushTicks == 1 && sweet_gpu_te_phase(now, &te_abs, &te_period)) {
-+		period = te_period;
-+		fb->fVsyncAbs = te_period;
-+		if (now > te_abs && (now - te_abs) > (te_period - (te_period >> 3))) {
-+			te_abs += te_period;
-+		}
-+		if (te_abs <= fb->fLastTE) {
-+			te_abs = fb->fLastTE + period;
-+		}
-+		fb->fLastTE = te_abs;
-+		vsync_ts = te_abs;
-+		/* Wake ~200 us (3840 XO ticks) after the next physical panel TE edge. */
-+		fb->fNextVsync = te_abs + period + 3840ULL;
-+		if (fb->fNextVsync <= now + 1920ULL) {
-+			fb->fNextVsync = now + period;
-+		}
-+	} else {
-+		fb->fNextVsync += fb->fVsyncAbs;
-+		if (fb->fNextVsync <= now) {
-+			fb->fNextVsync = now + fb->fVsyncAbs;
-+		}
-+		if (vsync_ts <= fb->fLastTE) {
-+			vsync_ts = fb->fLastTE + period;
-+		}
-+		fb->fLastTE = vsync_ts;
- 	}
- 	sender->wakeAtTime(fb->fNextVsync);
- 	if ((count % 300) == 0) {
-@@ -302,14 +364,12 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
- 		fb->fStatPresentAbs = 0;
- 	}
- 	/*
--	 * CA::WindowServer::IOMFBServer::vsync_callback(fb, a1, a2, a3, refcon): a1 only goes to kdebug, a2 is
--	 * the vsync's host time and a2 + a3 the next one (a3 = the refresh period, also CA's CVTimeStamp
--	 * videoRefreshPeriod). a3 was 0: CA saw every frame's deadline as already past.
-+	 * CA::WindowServer::IOMFBServer::vsync_callback(fb, a1, a2, a3, refcon):
-+	 * a2 + a3 are phase-locked to SDE INTF_1 hardware TE (59.88 Hz).
- 	 */
--	uint64_t period = fb->fVsyncAbs;
- 	uint64_t values[6] = {
- 		(uint32_t)count, (uint32_t)(count >> 32),
--		(uint32_t)now, (uint32_t)(now >> 32),
-+		(uint32_t)vsync_ts, (uint32_t)(vsync_ts >> 32),
- 		(uint32_t)period, (uint32_t)(period >> 32),
- 	};
- 
-@@ -326,6 +386,9 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
- 			fb->fFadeStep = step + 1;
- 		}
- 		IOLockUnlock(fb->fLock);
-+		if (step == 0 && fb->fGPU) {
-+			sweet_gpu_panel_fb0();
-+		}
- 		if (step <= 6) {
- 			for (uint32_t y = 0; y < fb->fHeight; y++) {
- 				volatile uint32_t *row = (volatile uint32_t *)(fb->fPixels + (uint64_t)y * fb->fRowBytes);
 @@ -595,8 +658,12 @@ AppleCLCD::presentGPU(const uint8_t *rec)
  		IOLockUnlock(fLock);
  		IOLog("SWEET FB: frames now scaled to fit by the GPU (panel stride %u)\n", fRowBytes);
@@ -2223,37 +1887,6 @@ index 3657d83..c69ea74 100644
  }
  
  static bool
-diff --git a/osfmk/kern/sched_prim.c b/osfmk/kern/sched_prim.c
-index 8e29586..3e26d72 100644
---- a/osfmk/kern/sched_prim.c
-+++ b/osfmk/kern/sched_prim.c
-@@ -5246,7 +5246,13 @@ no_available_cpus:
- 		/* there shouldn't be a pending AST if the processor is idle */
- 		assert((idle_primary_map & pset->pending_AST_URGENT_cpu_mask) == 0);
- 
-+#if __AMP__ && defined(SWEET)
-+		/* Prefer cpu7 (2.956 GHz Prime A76, highest bit in P-cluster) when idle. */
-+		int cpuid = (pset->pset_cluster_type == PSET_AMP_P) ?
-+		    bit_first(idle_primary_map) : lsb_first(idle_primary_map);
-+#else
- 		int cpuid = lsb_first(idle_primary_map);
-+#endif
- 		if (cpuid >= 0) {
- 			processor = processor_array[cpuid];
- 			return processor;
-@@ -8308,7 +8314,12 @@ try_again:
- 		primary_map = bit_ror64(primary_map, 1);
- 	}
- 
-+#if __AMP__ && defined(SWEET)
-+	int rotid = (!avoid_cpu0 && pset->pset_cluster_type == PSET_AMP_P) ?
-+	    bit_first(primary_map) : lsb_first(primary_map);
-+#else
- 	int rotid = lsb_first(primary_map);
-+#endif
- 	if (rotid >= 0) {
- 		int cpuid = avoid_cpu0 ? ((rotid + 1) & 63) : rotid;
- 
 diff --git a/osfmk/kern/thread_group.c b/osfmk/kern/thread_group.c
 index f04b813..45bb18f 100644
 --- a/osfmk/kern/thread_group.c
@@ -2411,7 +2044,7 @@ index 6089db9..6dea53b 100644
 +			return 1;
 +		}
 +	}
-+	return 0;
+++	return 0;
 +}
 +#endif /* SWEET */
  #define gicr_read32(offset) (_gic_read32(gicr_pe_base + (offset)))
