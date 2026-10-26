@@ -2411,7 +2411,7 @@ index 6089db9..6dea53b 100644
 +			return 1;
 +		}
 +	}
-++	return 0;
++	return 0;
 +}
 +#endif /* SWEET */
  #define gicr_read32(offset) (_gic_read32(gicr_pe_base + (offset)))
