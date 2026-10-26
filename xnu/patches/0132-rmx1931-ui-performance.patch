@@ -1584,7 +1584,7 @@ index 668fb3a..93fc4fb 100644
  	uint64_t            fStatSwaps, fStatPresents, fStatPresentAbs;
  
  	static void vsyncFired(OSObject *owner, IOTimerEventSource *sender);
-@@ -251,14 +256,48 @@ AppleCLCD::start(IOService *provider)
+@@ -251,14 +256,14 @@ AppleCLCD::start(IOService *provider)
  		IOLog("SWEET FB: no vsync timer\n");
  		return false;
  	}
@@ -1604,9 +1604,35 @@ index 668fb3a..93fc4fb 100644
  		nanoseconds_to_absolutetime(SWEET_FB_VSYNC_US * 1000ULL, &fb->fVsyncAbs);
  		fb->fNextVsync = now;
  	}
- 	fb->fNextVsync += fb->fVsyncAbs;
- 	if (fb->fNextVsync <= now) {
- 		fb->fNextVsync = now + fb->fVsyncAbs;
+-	fb->fNextVsync += fb->fVsyncAbs;
+-	if (fb->fNextVsync <= now) {
+-		fb->fNextVsync = now + fb->fVsyncAbs;
++	uint64_t vsync_ts = now, period = fb->fVsyncAbs, te_abs = 0, te_period = 0;
++	if (fb->fFlushTicks == 1 && sweet_gpu_te_phase(now, &te_abs, &te_period)) {
++		period = te_period;
++		fb->fVsyncAbs = te_period;
++		if (now > te_abs && (now - te_abs) > (te_period - (te_period >> 3))) {
++			te_abs += te_period;
++		}
++		if (te_abs <= fb->fLastTE) {
++			te_abs = fb->fLastTE + period;
++		}
++		fb->fLastTE = te_abs;
++		vsync_ts = te_abs;
++		/* Wake ~200 us (3840 XO ticks) after the next physical panel TE edge. */
++		fb->fNextVsync = te_abs + period + 3840ULL;
++		if (fb->fNextVsync <= now + 1920ULL) {
++			fb->fNextVsync = now + period;
++		}
++	} else {
++		fb->fNextVsync += fb->fVsyncAbs;
++		if (fb->fNextVsync <= now) {
++			fb->fNextVsync = now + fb->fVsyncAbs;
++		}
++		if (vsync_ts <= fb->fLastTE) {
++			vsync_ts = fb->fLastTE + period;
++		}
++		fb->fLastTE = vsync_ts;
  	}
  	sender->wakeAtTime(fb->fNextVsync);
  	if ((count % 300) == 0) {
@@ -1623,7 +1649,8 @@ index 668fb3a..93fc4fb 100644
 -	uint64_t period = fb->fVsyncAbs;
  	uint64_t values[6] = {
  		(uint32_t)count, (uint32_t)(count >> 32),
- 		(uint32_t)now, (uint32_t)(now >> 32),
+-		(uint32_t)now, (uint32_t)(now >> 32),
++		(uint32_t)vsync_ts, (uint32_t)(vsync_ts >> 32),
  		(uint32_t)period, (uint32_t)(period >> 32),
  	};
  
@@ -1641,8 +1668,13 @@ index 668fb3a..93fc4fb 100644
  		IOLockUnlock(fLock);
  		IOLog("SWEET FB: frames now scaled to fit by the GPU (panel stride %u)\n", fRowBytes);
  	}
-+ 	uint32_t dx = 0, dy = 0, dw = 0, dh = 0;
- 	int rc = sweet_gpu_present(slot, s->kernelAddress(), s->offset, s->width, s->height, s->bytesPerRow,
++	uintptr_t cleanKva = (!s->gpuImported || s->cpuDirty) ? s->kernelAddress() : 0;
++	if (cleanKva != 0) {
++		s->cpuDirty = false;
++	}
+ 	uint32_t dx = 0, dy = 0, dw = 0, dh = 0;
+-	int rc = sweet_gpu_present(slot, s->kernelAddress(), s->offset, s->width, s->height, s->bytesPerRow,
++	int rc = sweet_gpu_present(slot, cleanKva, s->offset, s->width, s->height, s->bytesPerRow,
  	    fRowBytes, fCornerRadius, &dx, &dy, &dw, &dh);
  	s->release();
  	if (rc) {
@@ -2276,7 +2308,7 @@ index 6089db9..6dea53b 100644
  #include <machine/machine_routines.h>
  #include <pexpert/device_tree.h>
  #include <pexpert/arm64/board_config.h>
-@@ -44,8 +45,111 @@ _gic_write32(vm_offset_t addr, uint32_t value)
+@@ -44,8 +45,108 @@ _gic_write32(vm_offset_t addr, uint32_t value)
  	*((volatile uint32_t *) addr) = value;
  }
  
@@ -2379,7 +2411,7 @@ index 6089db9..6dea53b 100644
 +			return 1;
 +		}
 +	}
-+	return 0;
+++	return 0;
 +}
 +#endif /* SWEET */
  #define gicr_read32(offset) (_gic_read32(gicr_pe_base + (offset)))
