@@ -693,6 +693,96 @@ cm_image_added(__unused const struct mach_header *header, __unused intptr_t slid
 	    getprogname());
 }
 
+/* ---- SpringBoard & backboardd: selective CABackdropLayer live capture bypass ----
+ *
+ * Disables ONLY live per-frame CABackdropLayer framebuffer readback/blur in
+ * backboardd and SpringBoard while keeping 100% of pre-baked IconServices 3D
+ * Liquid Glass app icons, translucent pill chrome, specular borders, and spring
+ * animations (NOT Accessibility "Reduce Transparency").
+ * Touch /private/var/local/live-glass (or /var/local/live-glass) to re-enable
+ * live dynamic refraction within 5 s without restarting or reflashing.
+ */
+static IMP orig_cabd_is_enabled;
+static IMP orig_cabd_set_enabled;
+static IMP orig_cabd_init;
+static SEL sel_cabd_set_enabled;
+static bool cabd_hooked;
+
+static bool
+hot_live_glass_enabled(void)
+{
+	static int cached = -1;
+	static time_t last_chk = 0;
+	struct timeval tv;
+
+	(void)gettimeofday(&tv, NULL);
+	if (cached < 0 || (tv.tv_sec - last_chk) >= 5) {
+		last_chk = tv.tv_sec;
+		cached = (access("/private/var/local/live-glass", F_OK) == 0 ||
+		    access("/var/local/live-glass", F_OK) == 0) ? 1 : 0;
+	}
+	return cached != 0;
+}
+
+static BOOL
+hot_cabd_is_enabled(id self, SEL selector)
+{
+	if (hot_live_glass_enabled() && orig_cabd_is_enabled != NULL) {
+		return ((BOOL (*)(id, SEL))orig_cabd_is_enabled)(self, selector);
+	}
+	return NO;
+}
+
+static void
+hot_cabd_set_enabled(id self, SEL selector, BOOL enabled)
+{
+	if (orig_cabd_set_enabled == NULL) {
+		return;
+	}
+	((void (*)(id, SEL, BOOL))orig_cabd_set_enabled)(self, selector,
+	    hot_live_glass_enabled() ? enabled : NO);
+}
+
+static id
+hot_cabd_init(id self, SEL selector)
+{
+	id res = orig_cabd_init != NULL ?
+	    ((id (*)(id, SEL))orig_cabd_init)(self, selector) : self;
+	if (res != NULL && !hot_live_glass_enabled() &&
+	    orig_cabd_set_enabled != NULL && sel_cabd_set_enabled != NULL) {
+		((void (*)(id, SEL, BOOL))orig_cabd_set_enabled)(res,
+		    sel_cabd_set_enabled, NO);
+	}
+	return res;
+}
+
+static void
+hot_try_hook_backdrop_layer(const char *who)
+{
+	Class cls;
+	Method m;
+
+	if (cabd_hooked || (cls = objc_getClass("CABackdropLayer")) == NULL) {
+		return;
+	}
+	cabd_hooked = true;
+	sel_cabd_set_enabled = sel_registerName("setEnabled:");
+	m = class_getInstanceMethod(cls, sel_registerName("isEnabled"));
+	if (m != NULL) {
+		orig_cabd_is_enabled = method_setImplementation(m, (IMP)hot_cabd_is_enabled);
+	}
+	m = class_getInstanceMethod(cls, sel_cabd_set_enabled);
+	if (m != NULL) {
+		orig_cabd_set_enabled = method_setImplementation(m, (IMP)hot_cabd_set_enabled);
+	}
+	m = class_getInstanceMethod(cls, sel_registerName("init"));
+	if (m != NULL) {
+		orig_cabd_init = method_setImplementation(m, (IMP)hot_cabd_init);
+	}
+	say("hot: %s: CABackdropLayer live capture bypass active (/var/local/live-glass re-enables)\n",
+	    who);
+}
+
 /* ---- SpringBoard: snapshot format & iOS 26+ CloudConfiguration bypass ---- */
 
 #define SNAPSHOT_FORMAT_PNG  0L
@@ -726,6 +816,8 @@ sb_image_added(__unused const struct mach_header *header, __unused intptr_t slid
 {
 	Class cls;
 	Method method;
+
+	hot_try_hook_backdrop_layer("SpringBoard");
 
 	if (!sb_xb_hooked &&
 	    (cls = objc_getClass("XBApplicationSnapshotManifestImpl")) != NULL) {
@@ -857,6 +949,8 @@ bb_image_added(__unused const struct mach_header *header, __unused intptr_t slid
 {
 	Class cls;
 	Method method;
+
+	hot_try_hook_backdrop_layer("backboardd");
 
 	if (!bb_ringer_hooked &&
 	    (cls = objc_getClass("BKButtonHIDEventProcessor")) != NULL) {

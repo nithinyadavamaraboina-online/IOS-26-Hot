@@ -20,6 +20,7 @@ size_t native_bridge_metal_telemetry(char *out, size_t size);
 struct NmbShaderCacheStats;
 bool native_bridge_metal_shader_cache_stats(struct NmbShaderCacheStats *out);
 bool native_bridge_metal_work_stats(uint64_t out[10]);
+uint64_t native_bridge_metal_recent_commits(uint64_t windowUs);
 // The same fixed CPU, memory and pipeline workload on the tablet and the host, so their times compare directly (int-145): compute, first-touch
 // page faults, memset bandwidth, CommonCrypto SHA-256, then the first `pairs` vertex/fragment pairs of the given QuartzCore metallib made into
 // BGRA8 render states and drawn once each (pipeline_timing_host's draw=1 order). The results become the telemetry's Y rows; also returned.

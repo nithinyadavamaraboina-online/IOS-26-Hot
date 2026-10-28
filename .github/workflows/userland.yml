@@ -28,7 +28,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: work/turnip/build-ios/src/freedreno/vulkan/libvulkan_freedreno.dylib
-          key: turnip-ios-85fda3b3-${{ runner.os }}-${{ hashFiles('phone/turnip/**', 'tools/build-turnip-ios.sh', 'work/userland/bin/ios-cc') }}
+          key: turnip-ios-85fda3b3-cd1b9757-${{ runner.os }}-${{ hashFiles('phone/turnip/**', 'tools/build-turnip-ios.sh', 'work/userland/bin/ios-cc') }}
 
       - name: Cache metal2vulkan bridge archive (libnative_metal_bridge.a)
         id: cache-m2v-lib

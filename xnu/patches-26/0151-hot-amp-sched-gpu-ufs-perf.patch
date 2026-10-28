@@ -1,0 +1,305 @@
+From f1802bda2bbd242d47f2ae4b707246a727d3e7bd Mon Sep 17 00:00:00 2001
+From: XNU 26 Rebase <rebase@local>
+Date: Wed, 28 Oct 2026 21:08:06 +0000
+Subject: [PATCH] 0151: hot AMP Edge E/P cluster scheduling, 250us GPU fence
+ sleep, UFS cache/wait, work_interval ops
+
+---
+ bsd/dev/sweet_gpu.c                  | 43 +++++++++++++++------
+ bsd/dev/sweet_ufs.c                  |  2 +-
+ bsd/kern/sys_work_interval.c         |  6 +++
+ iokit/Kernel/arm/SweetCPU.cpp        |  6 ++-
+ libkern/os/atomic_private.h          |  2 +-
+ osfmk/arm64/machine_routines.c       |  4 +-
+ osfmk/kern/processor.c               |  4 ++
+ osfmk/kern/sched_clutch.c            | 57 +++++++++++++++++++++++++++-
+ pexpert/pexpert/arm64/SWEET.h        |  2 +-
+ pexpert/pexpert/arm64/board_config.h |  2 +-
+ 10 files changed, 107 insertions(+), 21 deletions(-)
+
+diff --git a/bsd/dev/sweet_gpu.c b/bsd/dev/sweet_gpu.c
+index 4487112..1765fc2 100644
+--- a/bsd/dev/sweet_gpu.c
++++ b/bsd/dev/sweet_gpu.c
+@@ -958,14 +958,34 @@ sweet_gpu_submit_user_async(uint64_t ib_iova, uint32_t dwords)
+ int
+ sweet_gpu_wait_fence(uint32_t fence, uint32_t timeout_ms)
+ {
+-	for (unsigned i = 0; i < timeout_ms * 50; i++) {
++	uint64_t t0 = mach_absolute_time(), ns = 0;
++	uint64_t timeout_ns = (uint64_t)timeout_ms * 1000000ULL;
++	for (;;) {
+ 		if (!gpu_ready) {
+ 			return -1;
+ 		}
+ 		if (a6_fence_done(&gpu, fence)) {
+ 			return 0;
+ 		}
+-		delay(20);
++		absolutetime_to_nanoseconds(mach_absolute_time() - t0, &ns);
++		if (ns >= timeout_ns) {
++			break;
++		}
++		if (ns < 50000ULL) {
++			delay(5);
++		} else if (!ml_at_interrupt_context()) {
++			uint64_t rem_us = (timeout_ns - ns) / 1000ULL;
++			if (rem_us > 250) {
++				rem_us = 250;
++			}
++			if (rem_us >= 50) {
++				delay_for_interval((uint32_t)rem_us, (uint32_t)NSEC_PER_USEC);
++			} else {
++				delay(5);
++			}
++		} else {
++			delay(50);
++		}
+ 	}
+ 	lck_mtx_lock(&sweet_gpu_lock);
+ 	int rc = a6_fence_done(&gpu, fence) ? 0 : -1;
+@@ -1324,19 +1344,20 @@ sweet_gpu_wait_fence_ns(uint32_t fence, uint64_t timeout_ns)
+ 		if (ns >= timeout_ns) {
+ 			return sweet_gpu_fence_done(fence) ? 0 : 1;
+ 		}
+-		if (ns < 60000ULL) {
+-			delay(10);
++		if (ns < 50000ULL) {
++			delay(5);
+ 		} else if (!ml_at_interrupt_context()) {
+-			uint64_t rem_ns = timeout_ns - ns;
+-			if (rem_ns >= 1000000ULL) {
+-				delay_for_interval(1, (uint32_t)NSEC_PER_MSEC);
+-			} else if (rem_ns >= 100000ULL) {
+-				delay_for_interval((uint32_t)(rem_ns / 1000ULL), (uint32_t)NSEC_PER_USEC);
++			uint64_t rem_us = (timeout_ns - ns) / 1000ULL;
++			if (rem_us > 250) {
++				rem_us = 250;
++			}
++			if (rem_us >= 50) {
++				delay_for_interval((uint32_t)rem_us, (uint32_t)NSEC_PER_USEC);
+ 			} else {
+-				delay(10);
++				delay(5);
+ 			}
+ 		} else {
+-			delay(250);
++			delay(50);
+ 		}
+ 	}
+ }
+diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+index 0280588..5c8a75f 100644
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -610,7 +610,7 @@ sweet_ufs_init(void)
+ 	PE_parse_boot_argn("ufsroot", want, sizeof(want));
+ 	uint32_t rw = 0;
+ 	PE_parse_boot_argn("ufsrw", &rw, sizeof(rw));
+-	uint32_t cache = 0, wait = 0;
++	uint32_t cache = 1, wait = 1;
+ 	PE_parse_boot_argn("ufscache", &cache, sizeof(cache));
+ 	PE_parse_boot_argn("ufswait", &wait, sizeof(wait));
+ 	su.cache = (cache == 1);
+diff --git a/bsd/kern/sys_work_interval.c b/bsd/kern/sys_work_interval.c
+index b544bf3..596da6a 100644
+--- a/bsd/kern/sys_work_interval.c
++++ b/bsd/kern/sys_work_interval.c
+@@ -265,6 +265,12 @@ work_interval_ctl(__unused proc_t p, struct work_interval_ctl_args *uap,
+ 
+ 		break;
+ 
++	case 6:
++	case 7:
++	case 8:
++		/* Stripped Apple-internal work_interval instance ops; succeed as no-op */
++		break;
++
+ 	default:
+ 		return ENOTSUP;
+ 	}
+diff --git a/iokit/Kernel/arm/SweetCPU.cpp b/iokit/Kernel/arm/SweetCPU.cpp
+index 92c344f..cfcfc26 100644
+--- a/iokit/Kernel/arm/SweetCPU.cpp
++++ b/iokit/Kernel/arm/SweetCPU.cpp
+@@ -161,8 +161,10 @@ SweetCPU::startAll(void *arg __unused, wait_result_t result __unused)
+ 			}
+ 			IOSleep(1);
+ 		}
+-		IOLog("SWEET CPU: cpu=%u mpidr=0x%x came alive; SGI1 OK\n",
+-		    i, topology->cpus[i].phys_id);
++		const char *ctype = (tcpu->cluster_type == CLUSTER_TYPE_P) ? "P" :
++		    (tcpu->cluster_type == CLUSTER_TYPE_E) ? "E" : "SMP";
++		IOLog("HOT CPU: cpu=%u mpidr=0x%x cluster=%u(%s) came alive; SGI1 OK\n",
++		    i, topology->cpus[i].phys_id, tcpu->cluster_id, ctype);
+ 	}
+ 	/* Publish exactly once, after every selected CPU has completed initCPU(). */
+ 	ml_cpu_init_completed();
+diff --git a/libkern/os/atomic_private.h b/libkern/os/atomic_private.h
+index 9fa4a87..53525ff 100644
+--- a/libkern/os/atomic_private.h
++++ b/libkern/os/atomic_private.h
+@@ -148,7 +148,7 @@
+  * @discussion
+  * OS_ATOMIC_USE_LLSC implies OS_ATOMIC_HAS_LLSC.
+  */
+-#if defined(__arm64__) && defined(__ARM_ARCH_8_2__)
++#if defined(__arm64__) && (defined(__ARM_ARCH_8_2__) || defined(__ARM_FEATURE_ATOMICS))
+ #define OS_ATOMIC_USE_LLSC  0
+ #else
+ #define OS_ATOMIC_USE_LLSC  OS_ATOMIC_HAS_LLSC
+diff --git a/osfmk/arm64/machine_routines.c b/osfmk/arm64/machine_routines.c
+index acde519..8b93bf7 100644
+--- a/osfmk/arm64/machine_routines.c
++++ b/osfmk/arm64/machine_routines.c
+@@ -1300,8 +1300,8 @@ ml_parse_cpu_topology(void)
+ #endif
+ 
+ #if defined(SWEET)
+-		/* Aff1 encodes the core on SM7150, not an Apple cluster ID. */
+-		cpu->die_cluster_id = (int)ml_readprop(child, "die-cluster-id", 0);
++		/* Aff1 encodes the core on SM7150/SM8150, not an Apple cluster ID. */
++		cpu->die_cluster_id = (unsigned int)ml_readprop(child, "die-cluster-id", cpu->cluster_id);
+ 		cluster->die_cluster_id = cpu->die_cluster_id;
+ 		cpu->cluster_core_id = (int)ml_readprop(child, "cluster-core-id", cpu->phys_id >> 8);
+ #else
+diff --git a/osfmk/kern/processor.c b/osfmk/kern/processor.c
+index 3e35085..d3a2295 100644
+--- a/osfmk/kern/processor.c
++++ b/osfmk/kern/processor.c
+@@ -1988,6 +1988,10 @@ pset_type_t
+ cluster_type_to_pset_type(cluster_type_t cluster_type)
+ {
+ 	switch (cluster_type) {
++#if defined(SWEET)
++	case CLUSTER_TYPE_SMP:
++		return PSET_AMP_E;
++#endif
+ 	case CLUSTER_TYPE_E:
+ 		return PSET_AMP_E;
+ 	case CLUSTER_TYPE_M:
+diff --git a/osfmk/kern/sched_clutch.c b/osfmk/kern/sched_clutch.c
+index 768efa7..5f0b4ae 100644
+--- a/osfmk/kern/sched_clutch.c
++++ b/osfmk/kern/sched_clutch.c
+@@ -1401,7 +1401,15 @@ sched_clutch_bucket_group_init(
+ 
+ 	os_atomic_store(&clutch_bucket_group->scbg_timeshare_tick, 0, relaxed);
+ 	os_atomic_store(&clutch_bucket_group->scbg_pri_shift, INT8_MAX, relaxed);
+-	os_atomic_store(&clutch_bucket_group->scbg_preferred_pset, sched_boot_pset->pset_id, relaxed);
++	pset_id_t pref_pset_id = sched_boot_pset->pset_id;
++#if CONFIG_SCHED_EDGE && defined(SWEET)
++	extern _Atomic pset_id_t hot_amp_p_pset_id;
++	pset_id_t p_pset_id = os_atomic_load(&hot_amp_p_pset_id, acquire);
++	if ((p_pset_id != PSET_ID_INVALID) && (bucket < TH_BUCKET_SHARE_UT)) {
++		pref_pset_id = p_pset_id;
++	}
++#endif /* CONFIG_SCHED_EDGE && defined(SWEET) */
++	os_atomic_store(&clutch_bucket_group->scbg_preferred_pset, pref_pset_id, relaxed);
+ 	/*
+ 	 * All thread groups should be initialized to be interactive; this allows the newly launched
+ 	 * thread groups to fairly compete with already running thread groups.
+@@ -3804,6 +3812,10 @@ sched_edge_thread_should_yield(processor_t processor, thread_t thread);
+ static void
+ sched_edge_pset_made_schedulable(processor_set_t pset);
+ 
++#if defined(SWEET)
++_Atomic pset_id_t hot_amp_p_pset_id = PSET_ID_INVALID;
++#endif /* defined(SWEET) */
++
+ static void
+ sched_edge_cpu_init_completed(void);
+ 
+@@ -4485,7 +4497,7 @@ sched_edge_update_pset_load_average(processor_set_t pset, uint64_t curtime)
+ 		 * instantly to allow threads to be migrated to other (potentially idle) pset quickly. Hence use the EWMA
+ 		 * when the system is already loaded; otherwise for an idle system use the latest load average immediately.
+ 		 */
+-		uint32_t old_load_shifted = (old_load_average + SCHED_PSET_LOAD_EWMA_ROUND_BIT) >> SCHED_PSET_LOAD_EWMA_FRACTION_BITS;
++		uint32_t old_load_shifted = (uint32_t)((old_load_average + SCHED_PSET_LOAD_EWMA_ROUND_BIT) >> SCHED_PSET_LOAD_EWMA_FRACTION_BITS);
+ 		boolean_t load_uptick = (old_load_shifted == 0) && (current_load != 0);
+ 		boolean_t load_downtick = (old_load_shifted != 0) && (current_load == 0);
+ 		uint64_t load_average;
+@@ -6424,6 +6436,17 @@ sched_edge_cpu_init_completed(void)
+ 			for (sched_bucket_t bucket = 0; bucket < TH_BUCKET_SCHED_MAX; bucket++) {
+ 				/* Set tunables for an edge based on the pset types at either ends of it */
+ 				sched_clutch_edge edge_config = edge_config_defaults[src_pset->pset_type][dst_pset->pset_type];
++#if defined(SWEET)
++				if ((src_pset->pset_type == PSET_AMP_E) && (dst_pset->pset_type == PSET_AMP_P) &&
++				    (bucket < TH_BUCKET_SHARE_BG)) {
++					/* Allow idle P-cores to steal/assist non-BG E-cluster work while keeping BG strictly on A55s */
++					edge_config = (sched_clutch_edge){
++						.sce_migration_weight = 128,
++						.sce_migration_allowed = 1,
++						.sce_steal_allowed = 1,
++					};
++				}
++#endif /* defined(SWEET) */
+ #if HAS_MCORE && CONFIG_SCHED_PERF_ISLANDS
+ 				if ((src_pset->pset_type == PSET_AMP_M) && (dst_pset->pset_type == PSET_AMP_M)) {
+ 					if (bucket == TH_BUCKET_SHARE_BG) {
+@@ -6462,6 +6485,36 @@ sched_edge_cpu_init_completed(void)
+ 	assert(sched_edge_config_verify());
+ #endif /* DEVELOPMENT || DEBUG */
+ 	splx(s);
++#if defined(SWEET)
++	pset_id_t p_pset_id = PSET_ID_INVALID;
++	for (pset_id_t pset_id = 0; pset_id < sched_num_psets; pset_id++) {
++		if (pset_for_id(pset_id)->pset_type == PSET_AMP_P) {
++			p_pset_id = pset_id;
++			break;
++		}
++	}
++	if (p_pset_id != PSET_ID_INVALID) {
++		os_atomic_store(&hot_amp_p_pset_id, p_pset_id, release);
++		pset_id_t tg_pref[TH_BUCKET_SCHED_MAX];
++		for (sched_bucket_t bucket = 0; bucket < TH_BUCKET_SCHED_MAX; bucket++) {
++			tg_pref[bucket] = (bucket < TH_BUCKET_SHARE_UT) ? p_pset_id : sched_boot_pset->pset_id;
++		}
++		for (uint64_t tg_id = 0; tg_id < 16; tg_id++) {
++			if (tg_id == THREAD_GROUP_BACKGROUND) {
++				continue;
++			}
++			struct thread_group *tg = thread_group_find_by_id_and_retain(tg_id);
++			if (tg != NULL) {
++				sched_edge_tg_preferred_pset_change(tg, tg_pref,
++				    SCHED_PERFCONTROL_PREFERRED_PSET_MIGRATE_RUNNING |
++				    SCHED_PERFCONTROL_PREFERRED_PSET_MIGRATE_RUNNABLE);
++				thread_group_deallocate_safe(tg);
++			}
++		}
++		kprintf("HOT AMP: Edge E/P active (boot_pset=%u p_pset=%u num_psets=%u)\n",
++		    sched_boot_pset->pset_id, p_pset_id, sched_num_psets);
++	}
++#endif /* defined(SWEET) */
+ }
+ 
+ static bool
+diff --git a/pexpert/pexpert/arm64/SWEET.h b/pexpert/pexpert/arm64/SWEET.h
+index 1a66c73..5322c83 100644
+--- a/pexpert/pexpert/arm64/SWEET.h
++++ b/pexpert/pexpert/arm64/SWEET.h
+@@ -13,7 +13,7 @@
+ #define _PEXPERT_ARM64_SWEET_H
+ 
+ #define NO_MONITOR                1
+-#define NO_ECORE                  1
++#define __ARM_AMP__               1
+ 
+ #define SWEET                     1
+ 
+diff --git a/pexpert/pexpert/arm64/board_config.h b/pexpert/pexpert/arm64/board_config.h
+index 5a01452..79f8bf4 100644
+--- a/pexpert/pexpert/arm64/board_config.h
++++ b/pexpert/pexpert/arm64/board_config.h
+@@ -309,7 +309,7 @@
+ 
+ #define MAX_L2_CLINE                   6
+ #define MAX_CPUS                       8
+-#define MAX_CPU_CLUSTERS               1
++#define MAX_CPU_CLUSTERS               2
+ 
+ #define CORE_NCTRS                     8 /* Placeholder; KPC is not enabled for this target */
+ #define NO_XNU_PLATFORM_ERROR_HANDLER  1
+-- 
+2.43.0
+

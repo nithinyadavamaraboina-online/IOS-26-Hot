@@ -234,22 +234,25 @@ def build(seed=None, qemu=False, highmem=False, d22ap=False, canvas_height=2499,
         # with CSR_ALLOW_UNRESTRICTED_FS (vm_unix.c shared region checks).
         node('asmb', [ph(), ('lp-sip0', u64(0x6f)), ('lp-sip1', u32(1))])])
 
-    # SMP: all eight cores in physical-core order (flame: 0-3 Cortex-A55,
-    # 4-6 Cortex-A76, 7 the A76 prime core), one homogeneous cluster. The
-    # kernel defaults to one and uses cpus=N to select an initial prefix.
-    # QEMU retains its original single-CPU tree: its MPIDRs differ.
+    # AMP on hardware: cpu0-3 = Cortex-A55 ('E', cluster 0), cpu4-6 = Cortex-A76
+    # + cpu7 = Cortex-A76 Prime ('P', cluster 1) for XNU's Edge scheduler (0151).
+    # QEMU retains its original single-CPU tree ('E', cluster 0): its MPIDRs differ.
     cpu_nodes = []
     for core in range(1 if qemu else 8):
+        is_p = (not qemu) and (core >= 4)
+        cluster_id = 1 if is_p else 0
+        cluster_type = ord('P') if is_p else ord('E')
+        cluster_core_id = (core - 4) if is_p else core
         cpu_nodes.append(node(f'cpu{core}', [
             ph(),
             ('device_type', cstr('cpu')),
             ('compatible', cstr('qcom,kryo470') + cstr('qcom,kryo485') + cstr('ARM,v8')),
             ('reg', u32(core << 8)),  # actual MPIDR Aff1:Aff0, NOT logical ID
             ('cpu-id', u32(core)),   # descriptive: XNU assigns IDs by DT order
-            ('cluster-id', u32(0)),  # descriptive; see ml_parse_cpu_topology
-            ('cluster-type', u32(0)),  # homogeneous CLUSTER_TYPE_SMP, not AMP
-            ('die-cluster-id', u32(0)),
-            ('cluster-core-id', u32(core)),
+            ('cluster-id', u32(cluster_id)),
+            ('cluster-type', u32(cluster_type)),
+            ('die-cluster-id', u32(cluster_id)),
+            ('cluster-core-id', u32(cluster_core_id)),
             ('l2-cache-id', u32(core)),  # per-core L2 nodes in the live FDT
             ('l3-cache-id', u32(0)),     # shared L3
             ('state', cstr('running' if core == 0 else 'stopped')),

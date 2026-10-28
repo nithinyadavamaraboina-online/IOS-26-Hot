@@ -228,6 +228,20 @@ def containers(root):
         d = os.path.join(root, rel)
         os.makedirs(d, exist_ok=True)
         os.chmod(d, mode)
+    for rel, uid, gid, mode in (
+        ('private/var/Keychains', 64, 64, 0o775),
+        ('private/var/Keychains/Analytics', 64, 64, 0o775),
+        ('private/var/mobile/Library/Keychains', MOBILE, 64, 0o775),
+        ('private/var/protected', 0, 0, 0o755),
+        ('private/var/protected/sfanalytics', 64, 64, 0o775),
+    ):
+        d = os.path.join(root, rel)
+        os.makedirs(d, exist_ok=True)
+        os.chown(d, uid, gid)
+        os.chmod(d, mode)
+    kc_link = os.path.join(root, 'private/var/keychains')
+    if not os.path.lexists(kc_link):
+        os.symlink('Keychains', kc_link)
 
 
 def find_container(root, kind, identifier):

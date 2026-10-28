@@ -71,6 +71,45 @@ static void ensure_auth_dir(void)
 	(void)chmod(kAuthDir.UTF8String, 0700);
 }
 
+static void ensure_keychain_dirs(void)
+{
+	(void)mkdir("/private/var/Keychains", 0775);
+	(void)chown("/private/var/Keychains", 64, 64);
+	(void)chmod("/private/var/Keychains", 0775);
+
+	(void)mkdir("/private/var/Keychains/Analytics", 0775);
+	(void)chown("/private/var/Keychains/Analytics", 64, 64);
+	(void)chmod("/private/var/Keychains/Analytics", 0775);
+
+	struct stat kst;
+	if (lstat("/private/var/keychains", &kst) == 0 && S_ISDIR(kst.st_mode)) {
+		NSFileManager *fm = [NSFileManager defaultManager];
+		NSArray<NSString *> *items = [fm contentsOfDirectoryAtPath:@"/private/var/keychains" error:nil];
+		for (NSString *name in items) {
+			NSString *src = [@"/private/var/keychains" stringByAppendingPathComponent:name];
+			NSString *dst = [@"/private/var/Keychains" stringByAppendingPathComponent:name];
+			if (![fm fileExistsAtPath:dst]) {
+				[fm moveItemAtPath:src toPath:dst error:nil];
+			} else {
+				[fm removeItemAtPath:src error:nil];
+			}
+		}
+		(void)rmdir("/private/var/keychains");
+	}
+	(void)symlink("Keychains", "/private/var/keychains");
+
+	(void)mkdir("/private/var/mobile/Library", 0755);
+	(void)mkdir("/private/var/mobile/Library/Keychains", 0775);
+	(void)chown("/private/var/mobile/Library/Keychains", 501, 64);
+	(void)chmod("/private/var/mobile/Library/Keychains", 0775);
+
+	(void)mkdir("/private/var/protected", 0755);
+	(void)chmod("/private/var/protected", 0755);
+	(void)mkdir("/private/var/protected/sfanalytics", 0775);
+	(void)chown("/private/var/protected/sfanalytics", 64, 64);
+	(void)chmod("/private/var/protected/sfanalytics", 0775);
+}
+
 static NSString *json_escape(NSString *s)
 {
 	if (!s) return @"";
@@ -175,26 +214,9 @@ static NSString *query_activation_state(void)
 	return @"Unknown";
 }
 
-static BOOL run_keychain_roundtrip_512b(int *out_status, NSString **out_step, NSInteger *out_got_len)
+static BOOL run_keychain_roundtrip_512b_query(NSDictionary *baseQuery, NSData *payload,
+    int *out_status, NSString **out_step, NSInteger *out_got_len)
 {
-	NSMutableData *payload = [NSMutableData dataWithLength:512];
-	uint8_t *p = (uint8_t *)payload.mutableBytes;
-	for (size_t i = 0; i < 512; i++) {
-		p[i] = (uint8_t)((i * 131 + 0x5A) & 0xFF);
-	}
-	NSDictionary *legacyCleanup = @{
-		(__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
-		(__bridge id)kSecAttrService: @"com.ios26hot.hotauth.selftest",
-		(__bridge id)kSecAttrAccount: @"roundtrip512",
-	};
-	(void)SecItemDelete((__bridge CFDictionaryRef)legacyCleanup);
-
-	NSDictionary *baseQuery = @{
-		(__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
-		(__bridge id)kSecAttrAccessGroup: @"com.ios26hot.hotauthd",
-		(__bridge id)kSecAttrService: @"com.ios26hot.hotauth.selftest",
-		(__bridge id)kSecAttrAccount: @"roundtrip512",
-	};
 	(void)SecItemDelete((__bridge CFDictionaryRef)baseQuery);
 
 	NSMutableDictionary *addAttrs = [baseQuery mutableCopy];
@@ -203,7 +225,7 @@ static BOOL run_keychain_roundtrip_512b(int *out_status, NSString **out_step, NS
 
 	OSStatus st = SecItemAdd((__bridge CFDictionaryRef)addAttrs, NULL);
 	if (st != errSecSuccess) {
-		usleep(150000);
+		usleep(200000);
 		(void)SecItemDelete((__bridge CFDictionaryRef)baseQuery);
 		st = SecItemAdd((__bridge CFDictionaryRef)addAttrs, NULL);
 	}
@@ -220,6 +242,14 @@ static BOOL run_keychain_roundtrip_512b(int *out_status, NSString **out_step, NS
 
 	CFTypeRef result = NULL;
 	st = SecItemCopyMatching((__bridge CFDictionaryRef)copyQuery, &result);
+	if (st != errSecSuccess || !result) {
+		if (result) {
+			CFRelease(result);
+			result = NULL;
+		}
+		usleep(250000);
+		st = SecItemCopyMatching((__bridge CFDictionaryRef)copyQuery, &result);
+	}
 	(void)SecItemDelete((__bridge CFDictionaryRef)baseQuery);
 
 	if (out_status) *out_status = (int)st;
@@ -243,6 +273,34 @@ static BOOL run_keychain_roundtrip_512b(int *out_status, NSString **out_step, NS
 	BOOL eq = (got != nil) && [got isEqualToData:payload];
 	if (out_step) *out_step = eq ? @"ok" : (got ? @"mismatch" : NSStringFromClass([obj class]));
 	return eq;
+}
+
+static BOOL run_keychain_roundtrip_512b(int *out_status, NSString **out_step, NSInteger *out_got_len)
+{
+	ensure_keychain_dirs();
+
+	NSMutableData *payload = [NSMutableData dataWithLength:512];
+	uint8_t *p = (uint8_t *)payload.mutableBytes;
+	for (size_t i = 0; i < 512; i++) {
+		p[i] = (uint8_t)((i * 131 + 0x5A) & 0xFF);
+	}
+	NSDictionary *defaultAgrpQuery = @{
+		(__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+		(__bridge id)kSecAttrService: @"com.ios26hot.hotauth.selftest",
+		(__bridge id)kSecAttrAccount: @"roundtrip512",
+	};
+	(void)SecItemDelete((__bridge CFDictionaryRef)defaultAgrpQuery);
+
+	NSDictionary *explicitAgrpQuery = @{
+		(__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+		(__bridge id)kSecAttrAccessGroup: @"com.ios26hot.hotauthd",
+		(__bridge id)kSecAttrService: @"com.ios26hot.hotauth.selftest",
+		(__bridge id)kSecAttrAccount: @"roundtrip512",
+	};
+	if (run_keychain_roundtrip_512b_query(explicitAgrpQuery, payload, out_status, out_step, out_got_len)) {
+		return YES;
+	}
+	return run_keychain_roundtrip_512b_query(defaultAgrpQuery, payload, out_status, out_step, out_got_len);
 }
 
 static NSInteger probe_https_status(NSString *urlStr)
@@ -1014,6 +1072,7 @@ int main(int argc, char *argv[])
 	@autoreleasepool {
 		gStateLock = [[NSLock alloc] init];
 		ensure_auth_dir();
+		ensure_keychain_dirs();
 
 		int srv = socket(AF_INET, SOCK_STREAM, 0);
 		if (srv < 0) {

@@ -162,10 +162,70 @@ purge_stale_caches_once(void)
 	purge_dir_recursive("/private/var/mobile/Library/Caches/com.apple.IconsCache", 0);
 }
 
+static void
+ensure_keychain_dirs(void)
+{
+	mkdir("/private/var/Keychains", 0775);
+	chown("/private/var/Keychains", 64, 64);
+	chmod("/private/var/Keychains", 0775);
+
+	mkdir("/private/var/Keychains/Analytics", 0775);
+	chown("/private/var/Keychains/Analytics", 64, 64);
+	chmod("/private/var/Keychains/Analytics", 0775);
+
+	/*
+	 * Case-sensitive HFSX rootfs has /private/var/Keychains, while parts of
+	 * Security.framework / securityd look up lowercase /private/var/keychains.
+	 * Merge any split-brain directory entries and alias keychains -> Keychains.
+	 */
+	struct stat kst;
+	if (lstat("/private/var/keychains", &kst) == 0 && S_ISDIR(kst.st_mode)) {
+		DIR *kd = opendir("/private/var/keychains");
+		if (kd) {
+			struct dirent *de;
+			char src[512], dst[512];
+			while ((de = readdir(kd)) != NULL) {
+				if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) {
+					continue;
+				}
+				snprintf(src, sizeof(src), "/private/var/keychains/%s", de->d_name);
+				snprintf(dst, sizeof(dst), "/private/var/Keychains/%s", de->d_name);
+				struct stat dst_st;
+				if (lstat(dst, &dst_st) != 0) {
+					(void)rename(src, dst);
+				} else {
+					struct stat src_st;
+					if (lstat(src, &src_st) == 0 && S_ISDIR(src_st.st_mode)) {
+						purge_dir_recursive(src, 0);
+						rmdir(src);
+					} else {
+						unlink(src);
+					}
+				}
+			}
+			closedir(kd);
+		}
+		rmdir("/private/var/keychains");
+	}
+	(void)symlink("Keychains", "/private/var/keychains");
+
+	mkdir("/private/var/mobile/Library", 0755);
+	mkdir("/private/var/mobile/Library/Keychains", 0775);
+	chown("/private/var/mobile/Library/Keychains", 501, 64);
+	chmod("/private/var/mobile/Library/Keychains", 0775);
+
+	mkdir("/private/var/protected", 0755);
+	chmod("/private/var/protected", 0755);
+	mkdir("/private/var/protected/sfanalytics", 0775);
+	chown("/private/var/protected/sfanalytics", 64, 64);
+	chmod("/private/var/protected/sfanalytics", 0775);
+}
+
 int
 main(int argc, char **argv, char **envp)
 {
 	(void)argc;
+	ensure_keychain_dirs();
 	mkdir("/private/var/local/fw", 0755);
 	mkdir("/private/var/local/fw/rmtfs", 0755);
 	unpack_gz_if_needed("/private/var/local/fw/rmtfs/oppostanvbk.img.gz",

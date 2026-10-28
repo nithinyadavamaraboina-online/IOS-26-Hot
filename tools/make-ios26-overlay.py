@@ -476,7 +476,7 @@ def main():
     ap.add_argument('--userland-dir', help='optional extracted userland dir (Applications/, HAL/, bin/, lib/)')
     ap.add_argument('--dsc-stubs-dir', help='optional dir of de-PACd dyld_shared_cache_arm64e.* stub subcaches')
     ap.add_argument('--mtl2-clients',
-                    default='*\n-cameracaptured\n-WidgetRenderer_Default',
+                    default='*\n-chronod\n-cameracaptured\n-iconservicesagent\n-WidgetRenderer_Default',
                     help='/private/var/local/mtl2-clients content')
     ap.add_argument('--wallpaper', help='optional PNG image to stage as Lock Screen and Home Screen wallpaper')
     ap.add_argument('--wallpaper-size', default='1125x2499',
@@ -1105,6 +1105,21 @@ def main():
         if args.mtl2_clients is not None:
             add_ustar_bytes(tf, 'private/var/local/mtl2-clients',
                             (args.mtl2_clients.strip() + '\n').encode(), mode=0o644)
+        add_ustar_bytes(
+            tf,
+            'private/var/local/mtl2-primelist',
+            b'/System/Library/Frameworks/QuartzCore.framework/default.metallib\n'
+            b'/System/Library/PrivateFrameworks/RenderBox.framework/default.metallib\n'
+            b'/System/Library/PrivateFrameworks/CoreUI.framework/default.metallib\n'
+            b'/System/Library/PrivateFrameworks/MediaCoreUI.framework/default.metallib\n',
+            mode=0o644,
+        )
+        add_ustar_dir(tf, 'private/var/Keychains', mode=0o775, uid=64, gid=64)
+        add_ustar_dir(tf, 'private/var/Keychains/Analytics', mode=0o775, uid=64, gid=64)
+        add_ustar_symlink(tf, 'private/var/keychains', 'Keychains')
+        add_ustar_dir(tf, 'private/var/mobile/Library/Keychains', mode=0o775, uid=MOBILE_UID, gid=64)
+        add_ustar_dir(tf, 'private/var/protected', mode=0o755, uid=0, gid=0)
+        add_ustar_dir(tf, 'private/var/protected/sfanalytics', mode=0o775, uid=64, gid=64)
         add_ustar_dir(tf, 'private/var/local/ipa', mode=0o777, uid=MOBILE_UID, gid=MOBILE_UID)
         add_ustar_dir(tf, 'private/var/local/hotauth', mode=0o700, uid=0, gid=0)
         add_ustar_bytes(tf, 'private/var/local/mtl2.log', b'', mode=0o666)
