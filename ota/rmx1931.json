@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793276038,
+      "datetime": 1793278753,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "a38d434f8853478c320955c9b6a6a4b34fce8749996b8745fcf6e93fd4f0aa10",
-      "sha256": "a38d434f8853478c320955c9b6a6a4b34fce8749996b8745fcf6e93fd4f0aa10",
+      "id": "7e0299f0c348609f1571b8f71145590cda068247030763cf3e6cf46c069dc5e0",
+      "sha256": "7e0299f0c348609f1571b8f71145590cda068247030763cf3e6cf46c069dc5e0",
       "romtype": "PIXELOS",
-      "size": 3574319,
-      "url": "https://github.com/nithinyadavamaraboina-online/ios-rmx1931/releases/download/a17-pixelos-20261029-1213/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "17.0-PixelOS-20261029-1213",
-      "tag": "a17-pixelos-20261029-1213",
+      "size": 17069530,
+      "url": "https://github.com/nithinyadavamaraboina-online/ios-rmx1931/releases/download/a17-pixelos-20261029-1259/RMX1931-Android17-PixelOS-OTA.zip",
+      "version": "17.0-PixelOS-20261029-1259",
+      "tag": "a17-pixelos-20261029-1259",
       "device": "RMX1931",
-      "changelog": "Android 17 (CinnamonBun, CP3A.260905.010, API 37.1) Retail Pixel OS OTA for Realme X2 Pro (RMX1931)\n\u2022 Fixed Samsung SOFEF03F-M AMOLED Brightness Slider & Sunlight HBM Auto-Release (prevents oppo_display/hbm=1 MIPI DCS backlight lockout across reboots & slider adjustments)\n\u2022 Calibrated 450-nit Spline Auto-Brightness Curve & Unattended Wireless @/cache/recovery/block.map OTA Engine\n\u2022 True Adreno 640 GPU Frosted Shade & Window Blur (34dp), DCI-P3 Wide Color & Retail 420dpi Scaling\n\u2022 Cohesive Variable RobotoFlex / Google Sans Typography & 92px Waterdrop Notch Breathing Space"
+      "changelog": "Android 17 (CinnamonBun, CP3A.260905.010, API 37.1) Retail Pixel OS OTA for Realme X2 Pro (RMX1931)\n\u2022 Official Retail Google Pixel Launcher (NexusLauncherRelease v17/907), Pixel Wallpaper & Style (WallpaperPickerGoogleRelease v17) & PixelThemesStub (Dock Search Bar, At a Glance, Google Discover, Themed Icons & Circle to Search)\n\u2022 Fixed Samsung SOFEF03F-M AMOLED Brightness Slider & Sunlight HBM Auto-Release\n\u2022 True Adreno 640 GPU Frosted Shade & Window Blur (34dp), DCI-P3 Wide Color & Retail 420dpi Scaling\n\u2022 Cohesive Variable RobotoFlex / Google Sans Typography & 92px Waterdrop Notch Breathing Space"
     }
   ]
 }
