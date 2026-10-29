@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793281078,
+      "datetime": 1793289909,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "b7c81a045ae58d901c486024545f3e64daab5d22df04dcaf31fbe5348d76af23",
-      "sha256": "b7c81a045ae58d901c486024545f3e64daab5d22df04dcaf31fbe5348d76af23",
+      "id": "2d81591f1b0ee0f0c9f71c38a79fee58a72d66b02c573a73d1d45a479a15188d",
+      "sha256": "2d81591f1b0ee0f0c9f71c38a79fee58a72d66b02c573a73d1d45a479a15188d",
       "romtype": "PIXELOS",
-      "size": 17069655,
-      "url": "https://github.com/nithinyadavamaraboina-online/ios-rmx1931/releases/download/a17-pixelos-20261029-1337/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "17.0-PixelOS-20261029-1337",
-      "tag": "a17-pixelos-20261029-1337",
+      "size": 323249494,
+      "url": "https://github.com/nithinyadavamaraboina-online/ios-rmx1931/releases/download/a17-pixelos-20261029-1605/RMX1931-Android17-PixelOS-OTA.zip",
+      "version": "17.0-PixelOS-20261029-1605",
+      "tag": "a17-pixelos-20261029-1605",
       "device": "RMX1931",
-      "changelog": "Android 17 (CinnamonBun, CP3A.260905.010, API 37.1) Retail Pixel OS OTA for Realme X2 Pro (RMX1931)\n\u2022 Fixed Pixel Launcher SearchUiManager & Recents ContentSuggestionsManager SystemServer service startup (stops home screen crash loop & enables All Apps local search)\n\u2022 Official Retail Google Pixel Launcher (NexusLauncherRelease v17/907), Pixel Wallpaper & Style (WallpaperPickerGoogleRelease v17) & PixelThemesStub\n\u2022 Fixed Samsung SOFEF03F-M AMOLED Brightness Slider & Sunlight HBM Auto-Release\n\u2022 True Adreno 640 GPU Frosted Shade & Window Blur (34dp), DCI-P3 Wide Color & Retail 420dpi Scaling"
+      "changelog": "Android 17 (CinnamonBun, CP3A.260905.010, API 37.1) Retail Pixel OS OTA for Realme X2 Pro (RMX1931)\n\u2022 Installed Pixel 9 Google Camera 9.6 (BSG MGC_9.6.080_V53_ENG) replacing stock AOSP Camera2 with HDR+ Enhanced, Night Sight, Portrait, Astro, RAW/DNG & Google Photos integration\n\u2022 Patched Spectra 380 CHI Camera HAL (com.qti.chi.override.so Project 19781 table) & AUX camera properties to unlock all 4 physical lenses cleanly: 0.6x 8MP IMX319 Ultrawide/Macro AF, 1.0x 64MP GW1 Main, 2.0x 13MP S5K3M5SX Optical Telephoto AF & 16MP IMX471 Selfie\n\u2022 Enabled Double-Tap Power Button & Lockscreen Secure Camera shortcut + Realme 60fps EIS session profile (32808)\n\u2022 Official Retail Google Pixel Launcher, Wallpaper & Style, AMOLED Brightness Slider & Adreno 640 Frosted Blur"
     }
   ]
 }
