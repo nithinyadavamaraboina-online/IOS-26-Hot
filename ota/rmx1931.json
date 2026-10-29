@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793289909,
+      "datetime": 1793291836,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "2d81591f1b0ee0f0c9f71c38a79fee58a72d66b02c573a73d1d45a479a15188d",
-      "sha256": "2d81591f1b0ee0f0c9f71c38a79fee58a72d66b02c573a73d1d45a479a15188d",
+      "id": "d8f46640d39c74c49f408d6fde612e29d11f6ef294bc0b6868b92c6e8bb2e131",
+      "sha256": "d8f46640d39c74c49f408d6fde612e29d11f6ef294bc0b6868b92c6e8bb2e131",
       "romtype": "PIXELOS",
-      "size": 323249494,
-      "url": "https://github.com/nithinyadavamaraboina-online/ios-rmx1931/releases/download/a17-pixelos-20261029-1605/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "17.0-PixelOS-20261029-1605",
-      "tag": "a17-pixelos-20261029-1605",
+      "size": 323250193,
+      "url": "https://github.com/nithinyadavamaraboina-online/ios-rmx1931/releases/download/a17-pixelos-20261029-1637/RMX1931-Android17-PixelOS-OTA.zip",
+      "version": "17.0-PixelOS-20261029-1637",
+      "tag": "a17-pixelos-20261029-1637",
       "device": "RMX1931",
-      "changelog": "Android 17 (CinnamonBun, CP3A.260905.010, API 37.1) Retail Pixel OS OTA for Realme X2 Pro (RMX1931)\n\u2022 Installed Pixel 9 Google Camera 9.6 (BSG MGC_9.6.080_V53_ENG) replacing stock AOSP Camera2 with HDR+ Enhanced, Night Sight, Portrait, Astro, RAW/DNG & Google Photos integration\n\u2022 Patched Spectra 380 CHI Camera HAL (com.qti.chi.override.so Project 19781 table) & AUX camera properties to unlock all 4 physical lenses cleanly: 0.6x 8MP IMX319 Ultrawide/Macro AF, 1.0x 64MP GW1 Main, 2.0x 13MP S5K3M5SX Optical Telephoto AF & 16MP IMX471 Selfie\n\u2022 Enabled Double-Tap Power Button & Lockscreen Secure Camera shortcut + Realme 60fps EIS session profile (32808)\n\u2022 Official Retail Google Pixel Launcher, Wallpaper & Style, AMOLED Brightness Slider & Adreno 640 Frosted Blur"
+      "changelog": "Android 17 (CinnamonBun, CP3A.260905.010, API 37.1) Retail Pixel OS OTA for Realme X2 Pro (RMX1931)\n\u2022 Fixed Pixel 9 Google Camera 9.6 (BSG MGC_9.6.080_V53_ENG) 1-second viewfinder crash: relabeled Adreno 640 OpenCL vendor libraries (libOpenCL_adreno.so & libkernelmanager.so) to same_process_hal_file:s0 and patched Google's TFLite delegate fallback UAF in libgcastartup.so\n\u2022 Patched Spectra 380 CHI Camera HAL (com.qti.chi.override.so Project 19781 table) & AUX camera properties to unlock all 4 physical lenses cleanly: 0.6x 8MP IMX319 Ultrawide/Macro AF, 1.0x 64MP GW1 Main, 2.0x 13MP S5K3M5SX Optical Telephoto AF & 16MP IMX471 Selfie\n\u2022 Enabled Double-Tap Power Button & Lockscreen Secure Camera shortcut + Realme 60fps EIS session profile (32808)\n\u2022 Official Retail Google Pixel Launcher, Wallpaper & Style, AMOLED Brightness Slider & Adreno 640 Frosted Blur"
     }
   ]
 }
