@@ -26,76 +26,6 @@ extern "C" void sm2_logs(const char *s);
 static void sm2_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 #include "HotPrimeShaders.h"
 
-/*
- * Selective live CABackdropLayer capture/blur bypass for client Metal apps
- * (backboardd and SpringBoard install the same hook early via libhot_sysfix.dylib).
- * Touching /var/local/live-glass re-enables live dynamic refraction within 5 s
- * without restarting apps or reflashing, while keeping 100% of pre-baked Liquid
- * Glass icons, pill chrome, specular borders, and spring animations.
- */
-static bool hot_mtl2_live_glass_enabled(void)
-{
-	static int cached = -1;
-	static time_t last_chk = 0;
-	struct timeval tv;
-	gettimeofday(&tv, NULL);
-	if (cached < 0 || (tv.tv_sec - last_chk) >= 5) {
-		last_chk = tv.tv_sec;
-		cached = (access("/private/var/local/live-glass", F_OK) == 0 ||
-		          access("/var/local/live-glass", F_OK) == 0) ? 1 : 0;
-	}
-	return cached != 0;
-}
-
-static IMP hot_orig_bd_is_enabled;
-static IMP hot_orig_bd_set_enabled;
-static IMP hot_orig_bd_init;
-static SEL hot_sel_bd_set_enabled;
-
-static BOOL hot_bd_is_enabled(id self, SEL cmd)
-{
-	if (hot_mtl2_live_glass_enabled() && hot_orig_bd_is_enabled)
-		return ((BOOL (*)(id, SEL))hot_orig_bd_is_enabled)(self, cmd);
-	return NO;
-}
-
-static void hot_bd_set_enabled(id self, SEL cmd, BOOL enabled)
-{
-	if (!hot_orig_bd_set_enabled)
-		return;
-	((void (*)(id, SEL, BOOL))hot_orig_bd_set_enabled)(
-	    self, cmd, hot_mtl2_live_glass_enabled() ? enabled : NO);
-}
-
-static id hot_bd_init(id self, SEL cmd)
-{
-	id res = hot_orig_bd_init ? ((id (*)(id, SEL))hot_orig_bd_init)(self, cmd) : self;
-	if (res && !hot_mtl2_live_glass_enabled() && hot_orig_bd_set_enabled && hot_sel_bd_set_enabled)
-		((void (*)(id, SEL, BOOL))hot_orig_bd_set_enabled)(res, hot_sel_bd_set_enabled, NO);
-	return res;
-}
-
-static void hot_install_backdrop_bypass_for_client(void)
-{
-	const char *prog = getprogname();
-	if (!prog || !strcmp(prog, "backboardd") || !strcmp(prog, "SpringBoard"))
-		return;
-	static dispatch_once_t once;
-	dispatch_once(&once, ^{
-		Class cls = objc_getClass("CABackdropLayer");
-		if (!cls)
-			return;
-		hot_sel_bd_set_enabled = sel_registerName("setEnabled:");
-		if (Method m = class_getInstanceMethod(cls, sel_registerName("isEnabled")))
-			hot_orig_bd_is_enabled = method_setImplementation(m, (IMP)hot_bd_is_enabled);
-		if (Method m = class_getInstanceMethod(cls, hot_sel_bd_set_enabled))
-			hot_orig_bd_set_enabled = method_setImplementation(m, (IMP)hot_bd_set_enabled);
-		if (Method m = class_getInstanceMethod(cls, sel_registerName("init")))
-			hot_orig_bd_init = method_setImplementation(m, (IMP)hot_bd_init);
-		sm2_log("CABackdropLayer live capture bypass active (touch /var/local/live-glass to enable)");
-	});
-}
-
 extern "C" void sm2_logs(const char *s)
 {
 	char buf[700];
@@ -169,14 +99,56 @@ static void missing(const char *cls, const char *sel)
 @interface NBDeviceMethods : NSObject
 @end
 
-/* iOS 16's QuartzCore asks for its precompiled pipeline archive (Apple GPU code): none, it builds its pipelines itself. */
+/*
+ * QuartzCore asks for its precompiled pipeline archive (Apple GPU code): none, it builds its pipelines itself.
+ * CoreImage / IconServices on iOS 26 also probe stitched & dynamic libraries; refuse cleanly with NSError before
+ * _MTLDevice's base implementation schedules MTLCompilerStitchingRequest onto a worker queue and sends private
+ * _MTLFunction selectors (-[NBFunction libraryData]) that abort iconservicesagent.
+ */
 @interface NBDeviceMethods (HotMetal2)
 @end
 @implementation NBDeviceMethods (HotMetal2)
 - (id)newPipelineLibraryWithFilePath:(NSString *)path error:(NSError **)error
 {
+	(void)path;
 	if (error)
 		*error = [NSError errorWithDomain:@"HotMetal2" code:1 userInfo:@{ NSLocalizedDescriptionKey : @"no pipeline libraries" }];
+	return nil;
+}
+- (id)newLibraryWithStitchedDescriptor:(id)descriptor error:(NSError **)error
+{
+	(void)descriptor;
+	if (error)
+		*error = [NSError errorWithDomain:@"HotMetal2" code:2 userInfo:@{ NSLocalizedDescriptionKey : @"stitched libraries are not supported" }];
+	return nil;
+}
+- (void)newLibraryWithStitchedDescriptor:(id)descriptor completionHandler:(void (^)(id, NSError *))completionHandler
+{
+	(void)descriptor;
+	NSError *err = [NSError errorWithDomain:@"HotMetal2" code:2 userInfo:@{ NSLocalizedDescriptionKey : @"stitched libraries are not supported" }];
+	if (completionHandler)
+		dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ completionHandler(nil, err); });
+}
+- (id)newLibraryWithStitchedDescriptorSPI:(id)descriptor error:(NSError **)error
+{
+	return [self newLibraryWithStitchedDescriptor:descriptor error:error];
+}
+- (void)newLibraryWithStitchedDescriptorSPI:(id)descriptor completionHandler:(void (^)(id, NSError *))completionHandler
+{
+	[self newLibraryWithStitchedDescriptor:descriptor completionHandler:completionHandler];
+}
+- (id)newDynamicLibrary:(id)library error:(NSError **)error
+{
+	(void)library;
+	if (error)
+		*error = [NSError errorWithDomain:@"HotMetal2" code:3 userInfo:@{ NSLocalizedDescriptionKey : @"dynamic libraries are not supported" }];
+	return nil;
+}
+- (id)newDynamicLibraryWithURL:(NSURL *)url error:(NSError **)error
+{
+	(void)url;
+	if (error)
+		*error = [NSError errorWithDomain:@"HotMetal2" code:3 userInfo:@{ NSLocalizedDescriptionKey : @"dynamic libraries are not supported" }];
 	return nil;
 }
 @end
@@ -311,8 +283,6 @@ static bool listed(void)
 		if (vk)
 			dladdr(vk, &tu);
 		sm2_log("images: HotMetal2 %p, libvulkan_freedreno %p", self.dli_fbase, tu.dli_fbase);
-		if (device)
-			hot_install_backdrop_bypass_for_client();
 		/* backboardd: idle background shader priming (+90 s, QOS_CLASS_BACKGROUND) + optional 10 s telemetry */
 		if (device && !strcmp(getprogname(), "backboardd")) {
 			hot_prime_shaders_start((id<MTLDevice>)device, "/var/local/mtl2-primelist", 90);

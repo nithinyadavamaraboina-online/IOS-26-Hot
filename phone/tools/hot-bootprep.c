@@ -182,6 +182,27 @@ purge_stale_caches_once(void)
 }
 
 static void
+purge_icon_caches_once(void)
+{
+	const char *sg_root = "/private/var/containers/Shared/SystemGroup";
+	DIR *d = opendir(sg_root);
+	if (d) {
+		struct dirent *de;
+		char p1[1024];
+		while ((de = readdir(d)) != NULL) {
+			if (de->d_name[0] == '.') {
+				continue;
+			}
+			snprintf(p1, sizeof(p1), "%s/%s/Library/Caches/com.apple.IconsCache", sg_root, de->d_name);
+			purge_dir_recursive(p1, 0);
+		}
+		closedir(d);
+	}
+	purge_dir_recursive("/private/var/mobile/Library/Caches/com.apple.IconsCache", 0);
+	purge_dir_recursive("/private/var/mobile/Library/Caches/com.apple.SpringBoard.folderIconCache", 0);
+}
+
+static void
 ensure_keychain_dirs(void)
 {
 	mkdir("/private/var/Keychains", 0775);
@@ -276,6 +297,16 @@ main(int argc, char **argv, char **envp)
 	if (stat(stamp, &st) != 0) {
 		purge_stale_caches_once();
 		int fd = open(stamp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+		if (fd >= 0) {
+			(void)write(fd, "ok\n", 3);
+			close(fd);
+		}
+	}
+
+	const char *icon_stamp = "/private/var/local/.hot0151-iconscache-purged-v5";
+	if (stat(icon_stamp, &st) != 0) {
+		purge_icon_caches_once();
+		int fd = open(icon_stamp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 		if (fd >= 0) {
 			(void)write(fd, "ok\n", 3);
 			close(fd);
