@@ -1,15 +1,15 @@
 {
   "response": [
     {
-      "datetime": 1793271944,
+      "datetime": 1793273755,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "2e2119e63643f873a7acdc9614485246048a35e90434ed3e516c9d92992ec3d2",
-      "sha256": "2e2119e63643f873a7acdc9614485246048a35e90434ed3e516c9d92992ec3d2",
+      "id": "e138550ac97aaab68ecede46ff873a372214365f6f5c7a4826f2cdb15350d54e",
+      "sha256": "e138550ac97aaab68ecede46ff873a372214365f6f5c7a4826f2cdb15350d54e",
       "romtype": "PIXELOS",
-      "size": 3313764,
-      "url": "https://github.com/nithinyadavamaraboina-online/ios-rmx1931/releases/download/a17-pixelos-20261029-1105/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "17.0-PixelOS-20261029-1105",
-      "tag": "a17-pixelos-20261029-1105",
+      "size": 3571752,
+      "url": "https://github.com/nithinyadavamaraboina-online/ios-rmx1931/releases/download/a17-pixelos-20261029-1135/RMX1931-Android17-PixelOS-OTA.zip",
+      "version": "17.0-PixelOS-20261029-1135",
+      "tag": "a17-pixelos-20261029-1135",
       "device": "RMX1931",
       "changelog": "Android 17 (CinnamonBun, CP3A.260905.010, API 37.1) Retail Pixel OS Polish OTA for Realme X2 Pro (RMX1931)\n\u2022 True Adreno 640 GPU Frosted Shade & Window Blur (34dp), DCI-P3 Wide Color & Adaptive OLED Saturation\n\u2022 Retail 1080p Pixel 420dpi Scaling (sw411dp 5x5 Home Grid) & 200ms 90Hz Touch Boost\n\u2022 Cohesive Variable RobotoFlex / Google Sans Typography & Lockscreen Clock Font\n\u2022 Waterdrop Notch Breathing Space (92px Status Bar / 96px Shade Header) & Pixel Gesture Navigation"
     }
