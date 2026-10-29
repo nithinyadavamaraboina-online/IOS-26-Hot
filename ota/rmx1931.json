@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793293056,
+      "datetime": 1793297443,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "8a2e305087c553091f9746911a4bd3040c41be8446408fc36e4fb2528d21337e",
-      "sha256": "8a2e305087c553091f9746911a4bd3040c41be8446408fc36e4fb2528d21337e",
+      "id": "a24404dcf172456cac474f347c5b873ec402603a473f0b5abd75dbb60badb1ad",
+      "sha256": "a24404dcf172456cac474f347c5b873ec402603a473f0b5abd75dbb60badb1ad",
       "romtype": "PIXELOS",
-      "size": 352664366,
-      "url": "https://github.com/nithinyadavamaraboina-online/ios-rmx1931/releases/download/a17-pixelos-20261029-1657/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "17.0-PixelOS-20261029-1657",
-      "tag": "a17-pixelos-20261029-1657",
+      "size": 352667307,
+      "url": "https://github.com/nithinyadavamaraboina-online/ios-rmx1931/releases/download/a17-pixelos-20261029-1810/RMX1931-Android17-PixelOS-OTA.zip",
+      "version": "17.0-PixelOS-20261029-1810",
+      "tag": "a17-pixelos-20261029-1810",
       "device": "RMX1931",
-      "changelog": "Android 17 (CinnamonBun, CP3A.260905.010, API 37.1) Retail Pixel OS OTA for Realme X2 Pro (RMX1931)\n\u2022 System-Level AdBlocker (samurai_adblockd): 231,800+ HaGeZi Multi Pro + StevenBlack DNS/DoH/DoT/QUIC sinkhole with CNAME uncloaking, Android 17 AdServices kill-switch, Quick Settings AdBlock tile & SamuraiParts live telemetry\n\u2022 Replaced stock Google Photos with Unlimited Original Quality Pixel XL Backup Google Photos (works 100% offline on first boot + cloud sync to v7.92.0 with genuine Google Account login)\n\u2022 Ad-Free App Suite: YouTube & YT Music Morphe root-mount (SponsorBlock + background play + Play Store detach, zero MicroG), automatic Instagram/Facebook/Messenger Dalvik bytecode Ad-Shield & 1-tap Cromite AdBlock Browser\n\u2022 Pixel 9 Google Camera 9.6 (BSG V53) + Adreno 640 OpenCL SPHAL & TFLite UAF Fix + Spectra 380 Quad-Lens CHI HAL (0.6x UW, 1x 64MP, 2x Tele, 16MP Selfie), Retail Pixel Launcher & AMOLED Brightness Slider"
+      "changelog": "Android 17 (CinnamonBun, CP3A.260905.010, API 37.1) Retail Pixel OS OTA for Realme X2 Pro (RMX1931)\n\u2022 System-Level AdBlocker (samurai_adblockd): 231,800+ HaGeZi Multi Pro + StevenBlack DNS/DoH/DoT/QUIC sinkhole with CNAME uncloaking, Android 17 AdServices kill-switch, Quick Settings AdBlock tile & SamuraiParts live telemetry\n\u2022 Replaced stock Google Photos with Unlimited Original Quality Pixel XL Backup Google Photos (works 100% offline on first boot + cloud sync to v7.92.0 with genuine Google Account login)\n\u2022 Ad-Free App Suite: YouTube & YT Music Morphe root-mount (SponsorBlock + background play + Play Store detach, zero MicroG), automatic Instagram/Facebook/Messenger Dalvik bytecode Ad-Shield & 1-tap Cromite AdBlock Browser\n\u2022 Pixel 9 Google Camera 9.6 (BSG V53): /data/app native BSG libdobby + AE/AWB/AF/GXP frame pipeline, SELinux execmod rules, Adreno 640 OpenCL SPHAL & TFLite UAF fix, and Spectra 380 Quad-Lens CHI HAL (0.6x UW, 1x 64MP, 2x Tele, 16MP Selfie)"
     }
   ]
 }
