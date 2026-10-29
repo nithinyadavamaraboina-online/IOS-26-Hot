@@ -765,15 +765,14 @@ static NSData *merged_app_entitlements(NSData *existingXml, NSString *bundleId, 
 	NSMutableArray *kcGroups = [NSMutableArray array];
 	if ([dict[@"keychain-access-groups"] isKindOfClass:[NSArray class]]) {
 		for (id g in dict[@"keychain-access-groups"]) {
-			if ([g isKindOfClass:[NSString class]] && ![kcGroups containsObject:g]) {
+			if ([g isKindOfClass:[NSString class]] && ![g isEqualToString:@"*"] && ![kcGroups containsObject:g]) {
 				[kcGroups addObject:g];
 			}
 		}
 	}
 	for (NSString *extra in @[
 		[NSString stringWithFormat:@"0000000000.%@", bid],
-		bid,
-		@"*"
+		bid
 	]) {
 		if (![kcGroups containsObject:extra]) [kcGroups addObject:extra];
 	}
@@ -2080,7 +2079,7 @@ static void ensure_first_boot_registration(int moved)
 		if (stat("/Applications/HotStore.app/HotStore", &st) == 0) sw_sz = (long long)st.st_size;
 		if (stat("/Applications/HotAuth.app/HotAuth", &st) == 0) sa_sz = (long long)st.st_size;
 
-		NSString *want = [NSString stringWithFormat:@"v3:%lld:%lld:%lu\n",
+		NSString *want = [NSString stringWithFormat:@"v4:%lld:%lld:%lu\n",
 		    sw_sz, sa_sz, (unsigned long)promoted.count];
 		NSString *have = [NSString stringWithContentsOfFile:@REG_STAMP_PATH encoding:NSUTF8StringEncoding error:nil];
 		if (moved == 0 && [have isEqualToString:want]) return;
@@ -2098,8 +2097,8 @@ static void ensure_first_boot_registration(int moved)
 
 		for (int attempt = 0; attempt < 5; attempt++) {
 			sleep(attempt == 0 ? 15 : 6);
+			int rc_reb = run_lsreg_rebuild();
 			int rc_reg = toReg.count > 0 ? run_lsreg_mobile_args(toReg) : 0;
-			int rc_reb = moved > 0 ? run_lsreg_rebuild() : 0;
 			fprintf(stderr, "hotstored: auto-register (%lu apps, moved=%d) attempt %d -> reg=%d rebuild=%d\n",
 			    (unsigned long)toReg.count, moved, attempt + 1, rc_reg, rc_reb);
 			if (rc_reg == 0 && rc_reb == 0) {

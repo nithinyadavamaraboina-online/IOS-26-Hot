@@ -476,7 +476,7 @@ def main():
     ap.add_argument('--userland-dir', help='optional extracted userland dir (Applications/, HAL/, bin/, lib/)')
     ap.add_argument('--dsc-stubs-dir', help='optional dir of de-PACd dyld_shared_cache_arm64e.* stub subcaches')
     ap.add_argument('--mtl2-clients',
-                    default='*\n-chronod\n-cameracaptured\n-iconservicesagent\n-WidgetRenderer_Default',
+                    default='*\n-chronod\n-cameracaptured\n-WidgetRenderer_Default\n-PosterBoard',
                     help='/private/var/local/mtl2-clients content')
     ap.add_argument('--wallpaper', help='optional PNG image to stage as Lock Screen and Home Screen wallpaper')
     ap.add_argument('--wallpaper-size', default='1125x2499',
@@ -1148,8 +1148,15 @@ def main():
             'System/Library/Extensions/SweetMetal2.bundle/SweetMetal2',
             'Applications/SweetStore.app/Info.plist',
             'Applications/SweetStore.app/SweetStore',
+            'Applications/SweetStore.app/SweetWebAppStub',
+            'Applications/SweetStore.app/AppIcon60x60@2x.png',
+            'Applications/SweetStore.app/AppIcon60x60@3x.png',
+            'Applications/SweetStore.app/_CodeSignature/CodeResources',
             'Applications/SweetAuth.app/Info.plist',
             'Applications/SweetAuth.app/SweetAuth',
+            'Applications/SweetAuth.app/AppIcon60x60@2x.png',
+            'Applications/SweetAuth.app/AppIcon60x60@3x.png',
+            'Applications/SweetAuth.app/_CodeSignature/CodeResources',
         ]
         if wp_assets is not None:
             rm_paths.extend([

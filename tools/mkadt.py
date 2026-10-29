@@ -236,12 +236,13 @@ def build(seed=None, qemu=False, highmem=False, d22ap=False, canvas_height=2499,
 
     # AMP on hardware: cpu0-3 = Cortex-A55 ('E', cluster 0), cpu4-6 = Cortex-A76
     # + cpu7 = Cortex-A76 Prime ('P', cluster 1) for XNU's Edge scheduler (0151).
-    # QEMU retains its original single-CPU tree ('E', cluster 0): its MPIDRs differ.
+    # Single-CPU QEMU uses 'P' (cluster 0) so recount's 1-element RCT_TOPO_CPU_KIND
+    # array indexes RCT_CPU_PERFORMANCE (0) instead of RCT_CPU_EFFICIENCY (1).
     cpu_nodes = []
     for core in range(1 if qemu else 8):
         is_p = (not qemu) and (core >= 4)
         cluster_id = 1 if is_p else 0
-        cluster_type = ord('P') if is_p else ord('E')
+        cluster_type = ord('P') if (qemu or is_p) else ord('E')
         cluster_core_id = (core - 4) if is_p else core
         cpu_nodes.append(node(f'cpu{core}', [
             ph(),

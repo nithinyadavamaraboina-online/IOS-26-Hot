@@ -139,6 +139,25 @@ purge_dir_recursive(const char *dir_path, int depth)
 }
 
 static void
+remove_legacy_bundle_dirs(void)
+{
+	static const char *const legacy_dirs[] = {
+		"/Applications/SweetStore.app",
+		"/Applications/SweetAuth.app",
+		"/System/Library/Extensions/SweetMetal2.bundle",
+		"/Library/Audio/Plug-Ins/HAL/HakiosAudio.driver",
+		"/System/Library/Audio/Plug-Ins/HAL/HakiosAudio.driver",
+	};
+	for (size_t i = 0; i < sizeof(legacy_dirs) / sizeof(legacy_dirs[0]); i++) {
+		struct stat st;
+		if (lstat(legacy_dirs[i], &st) == 0 && S_ISDIR(st.st_mode)) {
+			purge_dir_recursive(legacy_dirs[i], 0);
+			rmdir(legacy_dirs[i]);
+		}
+	}
+}
+
+static void
 purge_stale_caches_once(void)
 {
 	const char *sg_root = "/private/var/containers/Shared/SystemGroup";
@@ -225,6 +244,7 @@ int
 main(int argc, char **argv, char **envp)
 {
 	(void)argc;
+	remove_legacy_bundle_dirs();
 	ensure_keychain_dirs();
 	mkdir("/private/var/local/fw", 0755);
 	mkdir("/private/var/local/fw/rmtfs", 0755);
@@ -252,7 +272,7 @@ main(int argc, char **argv, char **envp)
 		}
 	}
 
-	const char *stamp = "/private/var/local/.wave5-caches-purged-v3";
+	const char *stamp = "/private/var/local/.hot0151-caches-purged-v4";
 	if (stat(stamp, &st) != 0) {
 		purge_stale_caches_once();
 		int fd = open(stamp, O_WRONLY | O_CREAT | O_TRUNC, 0644);

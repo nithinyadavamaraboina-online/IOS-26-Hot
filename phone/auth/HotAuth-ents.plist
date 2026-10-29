@@ -23,7 +23,6 @@
 	<key>keychain-access-groups</key>
 	<array>
 		<string>com.ios26hot.hotauth</string>
-		<string>*</string>
 	</array>
 </dict>
 </plist>

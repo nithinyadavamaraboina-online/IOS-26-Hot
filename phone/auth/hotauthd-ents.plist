@@ -24,7 +24,6 @@
 		<string>apple</string>
 		<string>appleaccount</string>
 		<string>com.apple.cfnetwork</string>
-		<string>*</string>
 	</array>
 </dict>
 </plist>
