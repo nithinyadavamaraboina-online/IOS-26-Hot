@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793302783,
+      "datetime": 1793417217,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "201cb329160c1db17f668ef22eee59eca015531f69b25607322965c1d88eaffd",
-      "sha256": "201cb329160c1db17f668ef22eee59eca015531f69b25607322965c1d88eaffd",
+      "id": "f59d14d031fbe81d605213ea6a659e22b79104cd33083142a2786d382a7d9bf5",
+      "sha256": "f59d14d031fbe81d605213ea6a659e22b79104cd33083142a2786d382a7d9bf5",
       "romtype": "PIXELOS",
-      "size": 352674774,
-      "url": "https://github.com/nithinyadavamaraboina-online/ios-rmx1931/releases/download/a17-pixelos-20261029-1939/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "17.0-PixelOS-20261029-1939",
-      "tag": "a17-pixelos-20261029-1939",
+      "size": 352676858,
+      "url": "https://github.com/nithinyadavamaraboina-online/ios-rmx1931/releases/download/a17-pixelos-20261031-0326/RMX1931-Android17-PixelOS-OTA.zip",
+      "version": "17.0-PixelOS-20261031-0326",
+      "tag": "a17-pixelos-20261031-0326",
       "device": "RMX1931",
-      "changelog": "Android 17 (CinnamonBun, CP3A.260905.010, API 37.1) Retail Pixel OS OTA for Realme X2 Pro (RMX1931)\n\u2022 System-Level AdBlocker (samurai_adblockd v2): Fail-safe Kernel Netfilter NFQUEUE (--queue-bypass) IPv4/IPv6 DNS & CNAME sinkhole restoring 100% Wi-Fi/Cellular connectivity, pure-C boot seed unpacker (231,800+ HaGeZi Pro + StevenBlack domains), isolated control queue & Quick Settings tile\n\u2022 Replaced stock Google Photos with Unlimited Original Quality Pixel XL Backup Google Photos (works 100% offline on first boot + cloud sync to v7.92.0 with genuine Google Account login)\n\u2022 Ad-Free App Suite: YouTube & YT Music Morphe root-mount (SponsorBlock + background play + Play Store detach, zero MicroG), automatic Instagram/Facebook/Messenger Dalvik bytecode Ad-Shield & 1-tap Cromite AdBlock Browser\n\u2022 Pixel 9 Google Camera 9.6 (BSG V53): /data/app native BSG libdobby + AE/AWB/AF/GXP frame pipeline, SELinux execmod rules, Adreno 640 OpenCL SPHAL & TFLite UAF fix, and Spectra 380 Quad-Lens CHI HAL (0.6x UW, 1x 64MP, 2x Tele, 16MP Selfie)"
+      "changelog": "Android 17 (CinnamonBun, CP3A.260905.010, API 37.1) Retail Pixel OS OTA for Realme X2 Pro (RMX1931)\n\u2022 Locked 90Hz Frame-Pacing & Snapdragon 855+ EAS Touch-Boost: Restored Linux 4.14 /dev/stune/{top-app,foreground,background,rt} cgroup hierarchy for libperfmgr 1000ms touch/scroll boost (0.00% Launcher jank, 5ms p90), eliminated YouTube 60Hz refresh-rate stranding, enabled Adreno 640 EXPENSIVE_RENDERING blur boost + client composition cache, and removed 30s background PackageManager polling\n\u2022 System-Level AdBlocker (samurai_adblockd v2): Fail-safe Kernel Netfilter NFQUEUE (--queue-bypass) IPv4/IPv6 DNS & CNAME sinkhole, dirty-checked zero-idle-IO telemetry, 231,800+ HaGeZi Pro + StevenBlack domains & Quick Settings tile\n\u2022 Unlimited Original Quality Pixel XL Backup Google Photos + Ad-Free YouTube/YTMusic Morphe & Meta Bytecode Ad-Shield\n\u2022 Pixel 9 Google Camera 9.6 (BSG V53): /data/app native BSG libdobby + Spectra 380 Quad-Lens CHI HAL (0.6x UW, 1x 64MP, 2x Tele, 16MP Selfie)"
     }
   ]
 }
