@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793540124,
+      "datetime": 1793551449,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "b602b90eaab5366c162ff9fa4f9a51d20e2dd8d7ad833924fdb0dde9c14f4cf5",
-      "sha256": "b602b90eaab5366c162ff9fa4f9a51d20e2dd8d7ad833924fdb0dde9c14f4cf5",
+      "id": "f6daf4980345c61d1cf2f3885d97815f508631c29b92c7781cb7d2fe96f05dd9",
+      "sha256": "f6daf4980345c61d1cf2f3885d97815f508631c29b92c7781cb7d2fe96f05dd9",
       "romtype": "PIXELOS",
-      "size": 4739097,
+      "size": 13992600,
       "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/a17-pixelos-20261101-0604/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "v1.3",
+      "version": "v1.4",
       "tag": "a17-pixelos-20261101-0604",
       "device": "RMX1931",
-      "changelog": "Pixel OS v1.3 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 iOS 26 UI Step 1 \u2014 1:1 Multi-Plane App Icons: Clean-room parametric Phone, Messages & 3-plane 36/24-tooth Settings icons with zero-seam 108dp->72dp launcher parallax & automatic icon cache refresh\n\u2022 System-Wide G2 Continuous-Corner Squircle Mask: Calibrated r=22.50% UIKit continuous superellipse across Pixel Launcher, Recents & Adaptive Icons\n\u2022 Restrained SamuraiGlass AGSL Liquid Glass Studio: Single-pass Adreno 640 Snell refraction, Clear & iOS 26.1 Tinted frosted veils, hair-fine 34\u00b0 specular catchlight & 90Hz Hooke spring droplet controls (zero global SurfaceFlinger blur overhead)\n\u2022 Full v1.2 Smoothness & Camera Suite Preserved: Native Adreno 640 OpenGL ES 3.2 HWUI, Codec2 VP9/HEVC 1080p60/4K60 tables, Quad-Lens Pixel 9 GCam 9.6, Original Quality Google Photos Backup & 50W SuperVOOC"
+      "changelog": "Pixel OS v1.4 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 90Hz Dual-Buffer Toroidal Liquid Glass Dock + Dewdrop \"Q Search\" Pill: 100% bottom Google Search Bar removal replaced by an authentic G2 (R=0.386*H) AGSL refracting dock with sigma=6.2dp meniscus lip, sigma=23.0dp frosted plateau, crown-flint dispersion, 14.5% dock-icon subsurface bloom & toggleable compact Search pill\n\u2022 Universal iOS 26 Multi-Plane Icon Engine (100% of Apps): Tier-1 bespoke multi-plane icons for Phone, Messages, Settings, Gmail, Google Photos & Chrome + Tier-2 Meijster O(N) EDT 34\u00b0 convex meniscus & chromatic-seam synthesizer styling every installed app across Auto, Default, Dark & Clear modes with instant live reload\n\u2022 One-Tap iOS 26 Cyan/Cobalt Petals & Midnight Cobalt Wallpapers in Realme X2 Pro Settings (Settings > System > Realme X2 Pro Settings)\n\u2022 Zero User Data Loss & Locked 90Hz Smoothness Preserved: Home screen layout (launcher.db), Adreno 640 OpenGL ES 3.2 HWUI, Codec2 4K60/1080p60, Quad-Lens GCam 9.6, Unlimited Google Photos Backup & 50W SuperVOOC intact"
     }
   ]
 }
