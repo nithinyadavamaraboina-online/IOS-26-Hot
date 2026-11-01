@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793513082,
+      "datetime": 1793522135,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "d676a9df3c886913bbf225cd9e43b1a127b2f6c22ef8912e466846388c7180df",
-      "sha256": "d676a9df3c886913bbf225cd9e43b1a127b2f6c22ef8912e466846388c7180df",
+      "id": "cbeb15f3cea88ce3fde83e865dc8a5633c3a0b5a53df8f927406501d6809baac",
+      "sha256": "cbeb15f3cea88ce3fde83e865dc8a5633c3a0b5a53df8f927406501d6809baac",
       "romtype": "PIXELOS",
-      "size": 6455087,
+      "size": 6455121,
       "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/a17-pixelos-20261101-0604/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "17.0-PixelOS-20261101-0604",
+      "version": "v1.1",
       "tag": "a17-pixelos-20261101-0604",
       "device": "RMX1931",
-      "changelog": "Android 17 (CinnamonBun, CP3A.260905.010, API 37.1) Retail Pixel OS for Realme X2 Pro (RMX1931)\n\u2022 Built-in Wireless OTA Channel (PixelOS-Android17-RMX1931, SamuraiOTAUpdater v17015): Background & screen-off Foreground Service downloads, HTTP 206 Range resume, SHA-256 verification, and one-tap TWRP OpenRecoveryScript auto-install\n\u2022 Chrome 156+ & Android 17 Native Renderer Fix (zygote_next on Linux 4.14): Adapted libzygote_sys.dylib.so (clone3 -> fork) and libcap_rust.dylib.so (CAP_LAST_CAP=37 bound guard) for instant web rendering\n\u2022 Locked 90Hz Frame-Pacing, Snapdragon 855+ EAS Touch-Boost, Goodix G3 UDFPS, 50W SuperVOOC, Dual TFA9894 Stereo & Pixel 9 Google Camera 9.6 (Quad-Lens 0.6x / 1x 64MP / 2x Tele / 16MP Selfie)\n\u2022 System-Level DNS AdBlocker (samurai_adblockd v2, 231,800+ HaGeZi Multi Pro + StevenBlack rules) + Pixel XL Original Quality Google Photos Backup"
+      "changelog": "Pixel OS v1.1 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Streamlined System Update UI: Clean short version numbers (v1.0 -> v1.1) and simplified Pixel-style update view with lightweight ~6.2 MB wireless OTAs\n\u2022 Background & screen-off OTA downloads with HTTP Range resume, SHA-256 verification, and one-tap TWRP auto-install\n\u2022 Chrome 156+ & Android 17 Native Renderer Fix (zygote_next on Linux 4.14), Locked 90Hz Frame-Pacing, Goodix G3 UDFPS & 50W SuperVOOC\n\u2022 System-Level DNS AdBlocker (231,800+ rules), Pixel 9 Google Camera 9.6 (Quad-Lens) & Original Quality Google Photos Backup"
     }
   ]
 }
