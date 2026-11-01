@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793465725,
+      "datetime": 1793513082,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "e24f280e0868b0f9d612be8ff76007f9754d782f4c554fa2c439cb3e45b0b7d0",
-      "sha256": "e24f280e0868b0f9d612be8ff76007f9754d782f4c554fa2c439cb3e45b0b7d0",
+      "id": "1b5fad2bd203d2cfffd2c5d7a3cd09de305a3d0de3f92374d75683f3af759b3b",
+      "sha256": "1b5fad2bd203d2cfffd2c5d7a3cd09de305a3d0de3f92374d75683f3af759b3b",
       "romtype": "PIXELOS",
-      "size": 352729733,
-      "url": "https://github.com/nithinyadavamaraboina-online/ios-rmx1931/releases/download/a17-pixelos-20261031-1655/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "17.0-PixelOS-20261031-1655",
-      "tag": "a17-pixelos-20261031-1655",
+      "size": 352726289,
+      "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/a17-pixelos-20261101-0604/RMX1931-Android17-PixelOS-OTA.zip",
+      "version": "17.0-PixelOS-20261101-0604",
+      "tag": "a17-pixelos-20261101-0604",
       "device": "RMX1931",
-      "changelog": "Android 17 (CinnamonBun, CP3A.260905.010, API 37.1) Retail Pixel OS OTA for Realme X2 Pro (RMX1931)\n\u2022 Chrome 156+ & Android 17 Native Renderer Fix (zygote_next on Linux 4.14): Adapted libzygote_sys.dylib.so (clone3 -> fork) and libcap_rust.dylib.so (CAP_LAST_CAP=37 bound guard) so isolated native renderers spawn cleanly with zero blank-page hangs or GPU channel timeouts\n\u2022 System-Level AdBlocker (samurai_adblockd v2): Self-healing mangle INPUT NFQUEUE hooks across netd boot initialization, preserved system_file label on /system/etc/hosts, dirty-checked zero-idle-IO telemetry & 231,800+ rules\n\u2022 Background & Screen-Off System Update Downloads (SamuraiOTAUpdater v17014): Dedicated specialUse Foreground Service (OtaDownloadService) with CPU/Wi-Fi locks, Doze & Freezer exemption, and HTTP 206 Range resume\n\u2022 Locked 90Hz Frame-Pacing & Snapdragon 855+ EAS Touch-Boost + Unlimited Original Quality Google Photos + Ad-Free YouTube/YTMusic + Pixel 9 GCam 9.6 (BSG V53)"
+      "changelog": "Android 17 (CinnamonBun, CP3A.260905.010, API 37.1) Retail Pixel OS for Realme X2 Pro (RMX1931)\n\u2022 Built-in Wireless OTA Channel (PixelOS-Android17-RMX1931, SamuraiOTAUpdater v17015): Background & screen-off Foreground Service downloads, HTTP 206 Range resume, SHA-256 verification, and one-tap TWRP OpenRecoveryScript auto-install\n\u2022 Chrome 156+ & Android 17 Native Renderer Fix (zygote_next on Linux 4.14): Adapted libzygote_sys.dylib.so (clone3 -> fork) and libcap_rust.dylib.so (CAP_LAST_CAP=37 bound guard) for instant web rendering\n\u2022 Locked 90Hz Frame-Pacing, Snapdragon 855+ EAS Touch-Boost, Goodix G3 UDFPS, 50W SuperVOOC, Dual TFA9894 Stereo & Pixel 9 Google Camera 9.6 (Quad-Lens 0.6x / 1x 64MP / 2x Tele / 16MP Selfie)\n\u2022 System-Level DNS AdBlocker (samurai_adblockd v2, 231,800+ HaGeZi Multi Pro + StevenBlack rules) + Pixel XL Original Quality Google Photos Backup"
     }
   ]
 }
