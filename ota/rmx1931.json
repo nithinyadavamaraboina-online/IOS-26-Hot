@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793522135,
+      "datetime": 1793526875,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "cbeb15f3cea88ce3fde83e865dc8a5633c3a0b5a53df8f927406501d6809baac",
-      "sha256": "cbeb15f3cea88ce3fde83e865dc8a5633c3a0b5a53df8f927406501d6809baac",
+      "id": "27e2a085ba53ee033d8bc3c6ade6f50eec230b3080b9e7a9011fe50559c937d6",
+      "sha256": "27e2a085ba53ee033d8bc3c6ade6f50eec230b3080b9e7a9011fe50559c937d6",
       "romtype": "PIXELOS",
-      "size": 6455121,
+      "size": 4366014,
       "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/a17-pixelos-20261101-0604/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "v1.1",
+      "version": "v1.2",
       "tag": "a17-pixelos-20261101-0604",
       "device": "RMX1931",
-      "changelog": "Pixel OS v1.1 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Streamlined System Update UI: Clean short version numbers (v1.0 -> v1.1) and simplified Pixel-style update view with lightweight ~6.2 MB wireless OTAs\n\u2022 Background & screen-off OTA downloads with HTTP Range resume, SHA-256 verification, and one-tap TWRP auto-install\n\u2022 Chrome 156+ & Android 17 Native Renderer Fix (zygote_next on Linux 4.14), Locked 90Hz Frame-Pacing, Goodix G3 UDFPS & 50W SuperVOOC\n\u2022 System-Level DNS AdBlocker (231,800+ rules), Pixel 9 Google Camera 9.6 (Quad-Lens) & Original Quality Google Photos Backup"
+      "changelog": "Pixel OS v1.2 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Chrome & YouTube 90Hz Smoothness Overhaul: Retired native NFQUEUE/hosts AdBlocker (zero DNS/QUIC stalls) & switched HWUI/RenderEngine to native Adreno 640 OpenGL ES 3.2 matching Official PixelOS 17.0\n\u2022 Hardware Codec2 VP9/HEVC/AVC Performance Points: Clean PixelOS media_codecs + 1080p60/4K60 measured frame-rate tables & thumbnail hardware decode\n\u2022 90Hz PowerHAL & Zero-Polling Monitor: Tuned SM8150-AC powerhint.json (persistent top-app EAS boost + 20ms Prime/Gold rate limits), swappiness=60, speed-compiled SystemUI & event-driven OnUidImportanceListener\n\u2022 Pixel 9 Google Camera 9.6 (Quad-Lens), Original Quality Google Photos Backup, Goodix G3 UDFPS, 50W SuperVOOC & Lightweight Wireless OTA"
     }
   ]
 }
