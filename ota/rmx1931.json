@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793561923,
+      "datetime": 1793567912,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "1ca7fb233bbacd61e14b69d0f14005fd06df9fa4b5252bdd5db5e07f547d055c",
-      "sha256": "1ca7fb233bbacd61e14b69d0f14005fd06df9fa4b5252bdd5db5e07f547d055c",
+      "id": "a87ca9fae3be5343e3c89a01ec5274951ceae26f812b245f81b1175e4f69d169",
+      "sha256": "a87ca9fae3be5343e3c89a01ec5274951ceae26f812b245f81b1175e4f69d169",
       "romtype": "PIXELOS",
-      "size": 13993209,
+      "size": 18767255,
       "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/a17-pixelos-20261101-0604/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "v1.4.1",
+      "version": "v1.5",
       "tag": "a17-pixelos-20261101-0604",
       "device": "RMX1931",
-      "changelog": "Pixel OS v1.4.1 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Hotfix v1.4.1 (Hardware-Bitmap Dock Bloom & Icon Rasterizer Fix): Resolves Pixel Launcher crash ('Software rendering doesn't support hardware bitmaps') via GPU Picture -> Bitmap.Config.HARDWARE -> ARGB_8888 capture in SamuraiWallpaperBlurCache & SamuraiIconSynthesizer\n\u2022 90Hz Dual-Buffer Toroidal Liquid Glass Dock + Dewdrop \"Q Search\" Pill: 100% bottom Google Search Bar removal replaced by an authentic G2 (R=0.386*H) AGSL refracting dock with sigma=6.2dp meniscus lip, sigma=23.0dp frosted plateau, crown-flint dispersion, 14.5% dock-icon subsurface bloom & toggleable compact Search pill\n\u2022 Universal iOS 26 Multi-Plane Icon Engine (100% of Apps): Tier-1 bespoke multi-plane icons for Phone, Messages, Settings, Gmail, Google Photos & Chrome + Tier-2 Meijster O(N) EDT 34\u00b0 convex meniscus & chromatic-seam synthesizer styling every installed app across Auto, Default, Dark & Clear modes with instant live reload\n\u2022 One-Tap iOS 26 Cyan/Cobalt Petals & Midnight Cobalt Wallpapers in Realme X2 Pro Settings (Settings > System > Realme X2 Pro Settings)\n\u2022 Zero User Data Loss & Locked 90Hz Smoothness Preserved: Home screen layout (launcher.db), Adreno 640 OpenGL ES 3.2 HWUI, Codec2 4K60/1080p60, Quad-Lens GCam 9.6, Unlimited Google Photos Backup & 50W SuperVOOC intact"
+      "changelog": "Pixel OS v1.5 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Authentic 1:1 iOS 26 System & App Store Icon Suite: Restores locked v1.3 multi-plane Phone, Messages & Settings icons byte-for-byte, maps Play Store -> 1:1 iOS 26 App Store, ships supersampled multi-plane Camera/Clock/Files/Contacts/Calculator/Voice Memos & official 1024x1024 iOS App Store icons (Gmail, Google Photos, Chrome, YouTube, Maps, Drive, Google, YT Music & more) across Default, Dark & Clear modes\n\u2022 Hardware-Concentric RMX1931 Display-Curve Liquid Glass Dock: Exact concentric G2 superellipse corner radius (R_dock = 64px = R_display_bottom 92px - 28px margin), Page-0 wallpaper refraction crop fix, luminance-adaptive frosted glass & crisp 0.58dp 34\u00b0 crystal specular rim\n\u2022 Global Hidden Bottom Navigation Bar + Live Settings Toggle: Hides the bottom gesture pill globally across Home Screen, SystemUI & all apps by default while preserving 90Hz swipe gestures, with a live 'Show Bottom Navigation Bar' toggle in Settings -> Realme X2 Pro\n\u2022 Zero User Data Loss & Locked 90Hz Smoothness Preserved: Home screen layout (launcher.db), Adreno 640 OpenGL ES 3.2 HWUI, Codec2 4K60/1080p60, Quad-Lens GCam 9.6, Unlimited Google Photos Backup & 50W SuperVOOC intact"
     }
   ]
 }
