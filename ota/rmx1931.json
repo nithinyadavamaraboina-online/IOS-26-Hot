@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793526875,
+      "datetime": 1793540124,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "27e2a085ba53ee033d8bc3c6ade6f50eec230b3080b9e7a9011fe50559c937d6",
-      "sha256": "27e2a085ba53ee033d8bc3c6ade6f50eec230b3080b9e7a9011fe50559c937d6",
+      "id": "b602b90eaab5366c162ff9fa4f9a51d20e2dd8d7ad833924fdb0dde9c14f4cf5",
+      "sha256": "b602b90eaab5366c162ff9fa4f9a51d20e2dd8d7ad833924fdb0dde9c14f4cf5",
       "romtype": "PIXELOS",
-      "size": 4366014,
+      "size": 4739097,
       "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/a17-pixelos-20261101-0604/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "v1.2",
+      "version": "v1.3",
       "tag": "a17-pixelos-20261101-0604",
       "device": "RMX1931",
-      "changelog": "Pixel OS v1.2 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Chrome & YouTube 90Hz Smoothness Overhaul: Retired native NFQUEUE/hosts AdBlocker (zero DNS/QUIC stalls) & switched HWUI/RenderEngine to native Adreno 640 OpenGL ES 3.2 matching Official PixelOS 17.0\n\u2022 Hardware Codec2 VP9/HEVC/AVC Performance Points: Clean PixelOS media_codecs + 1080p60/4K60 measured frame-rate tables & thumbnail hardware decode\n\u2022 90Hz PowerHAL & Zero-Polling Monitor: Tuned SM8150-AC powerhint.json (persistent top-app EAS boost + 20ms Prime/Gold rate limits), swappiness=60, speed-compiled SystemUI & event-driven OnUidImportanceListener\n\u2022 Pixel 9 Google Camera 9.6 (Quad-Lens), Original Quality Google Photos Backup, Goodix G3 UDFPS, 50W SuperVOOC & Lightweight Wireless OTA"
+      "changelog": "Pixel OS v1.3 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 iOS 26 UI Step 1 \u2014 1:1 Multi-Plane App Icons: Clean-room parametric Phone, Messages & 3-plane 36/24-tooth Settings icons with zero-seam 108dp->72dp launcher parallax & automatic icon cache refresh\n\u2022 System-Wide G2 Continuous-Corner Squircle Mask: Calibrated r=22.50% UIKit continuous superellipse across Pixel Launcher, Recents & Adaptive Icons\n\u2022 Restrained SamuraiGlass AGSL Liquid Glass Studio: Single-pass Adreno 640 Snell refraction, Clear & iOS 26.1 Tinted frosted veils, hair-fine 34\u00b0 specular catchlight & 90Hz Hooke spring droplet controls (zero global SurfaceFlinger blur overhead)\n\u2022 Full v1.2 Smoothness & Camera Suite Preserved: Native Adreno 640 OpenGL ES 3.2 HWUI, Codec2 VP9/HEVC 1080p60/4K60 tables, Quad-Lens Pixel 9 GCam 9.6, Original Quality Google Photos Backup & 50W SuperVOOC"
     }
   ]
 }
