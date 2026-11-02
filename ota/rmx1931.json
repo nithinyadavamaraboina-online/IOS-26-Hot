@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793620571,
+      "datetime": 1793626717,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "81390a26881c4ec0271fcff2c406016518c799869b54e4b5aa7dbcbbd5363bf6",
-      "sha256": "81390a26881c4ec0271fcff2c406016518c799869b54e4b5aa7dbcbbd5363bf6",
+      "id": "55ee1c1b5090286c61b76c5392145a1bba0b23a255a038ff215ea134c2f474bf",
+      "sha256": "55ee1c1b5090286c61b76c5392145a1bba0b23a255a038ff215ea134c2f474bf",
       "romtype": "PIXELOS",
-      "size": 21651305,
+      "size": 25826165,
       "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/a17-pixelos-20261101-0604/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "v1.5.5",
+      "version": "v1.6.0",
       "tag": "a17-pixelos-20261101-0604",
       "device": "RMX1931",
-      "changelog": "Pixel OS v1.5.5 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 True Zero-Refraction (0% Refraction): Exact 0.00px pixel pass-through across Home Screen Dock, 'Q Search' Pill, and iOS Styler cards/loupe/controls when Refraction Strength is set to 0% (inverse 1.10x Android 17 ImageWallpaper center-zoom alignment, zero parallax jump, zero wave ripple, zero touch-bulge floor, zero inner lens caustic)\n\u2022 True Zero-Frost Optical Crystal (0% Frost) + App-Close Dock Color Lock: Native 1080x2400 water-clear crystal at 0% Frost (zero milky veil/haze) + layout-locked dock color invariance during app open/close transitions\n\u2022 Standalone iOS Styler App (90Hz AGSL Liquid Glass) + Official iOS 26 'Sky' Default Wallpaper (1080x2400) + Pixel-Exact Uniform 62 px Home Screen Geometry + Pure Left-Right Navigation & 123 iOS 26 Icons"
+      "changelog": "Pixel OS v1.6.0 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 iOS 26 Liquid Glass Phone / Dialer (IosDialer): Native 90Hz AGSL Liquid Glass Phone & InCallService with floating 5-tab capsule bar (Favourites, Recents, Contacts, Keypad, Voicemail), circular frosted glass DTMF keypad, Dual-SIM selector, A-Z contact index scrubber, and full-screen Incoming Slide-to-Answer & Active Call UI\n\u2022 iOS 26 Liquid Glass Messages (IosMessages): Full SMS & MMS client with real AGSL refraction, curled iMessage-style speech bubbles, pinned circular contact avatars, Dual-SIM, Tapbacks, Swipe-to-Reply, Send Later, and seamless Home Screen Dock & default ROLE_DIALER / ROLE_SMS setup\n\u2022 Live iOS Styler Sync + True 0% Refraction & 0% Frost Optical Crystal + 129 Bundled iOS 26 Icons across Default, Dark & Clear modes"
     }
   ]
 }
