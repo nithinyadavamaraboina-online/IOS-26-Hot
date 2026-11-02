@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793617749,
+      "datetime": 1793620571,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "be6d8acb2c2173873b9bfd60987dd3af17f1780f5a8fc4e25d262152d97c2ff1",
-      "sha256": "be6d8acb2c2173873b9bfd60987dd3af17f1780f5a8fc4e25d262152d97c2ff1",
+      "id": "81390a26881c4ec0271fcff2c406016518c799869b54e4b5aa7dbcbbd5363bf6",
+      "sha256": "81390a26881c4ec0271fcff2c406016518c799869b54e4b5aa7dbcbbd5363bf6",
       "romtype": "PIXELOS",
-      "size": 21650700,
+      "size": 21651305,
       "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/a17-pixelos-20261101-0604/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "v1.5.4",
+      "version": "v1.5.5",
       "tag": "a17-pixelos-20261101-0604",
       "device": "RMX1931",
-      "changelog": "Pixel OS v1.5.4 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 True Zero-Frost Optical Crystal (0% Frost): Unblurred 540x1200 optical crystal refraction across 100% of Home Screen Dock, 'Q Search' Pill, and iOS Styler cards/preview when Glass Frost is set to 0% (zero milky veil, zero interior blur floor, full Snell meniscus bend & RGB dispersion)\n\u2022 App-Close Dock Color Lock: Eliminates dock color shift & 1000ms snap-back when opening and closing apps via layout-locked wallpaper sampling, direct wide-color window-buffer rendering, and live MultiValueAlpha invalidation\n\u2022 Standalone iOS Styler App (90Hz AGSL Liquid Glass) + Official iOS 26 'Sky' Default Wallpaper (1080x2400) + Pixel-Exact Uniform 62 px Home Screen Geometry + Pure Left-Right Navigation & 123 iOS 26 Icons"
+      "changelog": "Pixel OS v1.5.5 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 True Zero-Refraction (0% Refraction): Exact 0.00px pixel pass-through across Home Screen Dock, 'Q Search' Pill, and iOS Styler cards/loupe/controls when Refraction Strength is set to 0% (inverse 1.10x Android 17 ImageWallpaper center-zoom alignment, zero parallax jump, zero wave ripple, zero touch-bulge floor, zero inner lens caustic)\n\u2022 True Zero-Frost Optical Crystal (0% Frost) + App-Close Dock Color Lock: Native 1080x2400 water-clear crystal at 0% Frost (zero milky veil/haze) + layout-locked dock color invariance during app open/close transitions\n\u2022 Standalone iOS Styler App (90Hz AGSL Liquid Glass) + Official iOS 26 'Sky' Default Wallpaper (1080x2400) + Pixel-Exact Uniform 62 px Home Screen Geometry + Pure Left-Right Navigation & 123 iOS 26 Icons"
     }
   ]
 }
