@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793595802,
+      "datetime": 1793598350,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "b1949c579a5900e44ced73384affd066a8585102fc8ee9dff5df9ce25e50a2d1",
-      "sha256": "b1949c579a5900e44ced73384affd066a8585102fc8ee9dff5df9ce25e50a2d1",
+      "id": "055f6ab233bd51324e6de8567a11b6159652d52464003eaa239d06bc43d0a82a",
+      "sha256": "055f6ab233bd51324e6de8567a11b6159652d52464003eaa239d06bc43d0a82a",
       "romtype": "PIXELOS",
-      "size": 18767273,
+      "size": 18769618,
       "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/a17-pixelos-20261101-0604/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "v1.5.1",
+      "version": "v1.5.2",
       "tag": "a17-pixelos-20261101-0604",
       "device": "RMX1931",
-      "changelog": "Pixel OS v1.5.1 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Authentic 1:1 iOS 26 System & App Store Icon Suite: Restores locked v1.3 multi-plane Phone, Messages & Settings icons byte-for-byte, maps Play Store -> 1:1 iOS 26 App Store, ships supersampled multi-plane Camera/Clock/Files/Contacts/Calculator/Voice Memos & official 1024x1024 iOS App Store icons (Gmail, Google Photos, Chrome, YouTube, Maps, Drive, Google, YT Music & more) across Default, Dark & Clear modes\n\u2022 Lifted iOS 26 Concentric Icon-Cushion Liquid Glass Dock: Elevated dock bottom margin (62px / 23.6dp) aligned with iOS 26 SpringBoard thumb elevation, uniform 4-sided ~40px icon cushion, smooth continuous curved corners (R_dock = 96px, p = 2.65), Page-0 wallpaper refraction crop & crisp 0.58dp 34\u00b0 crystal specular rim\n\u2022 Global Hidden Bottom Navigation Bar + Live Settings Toggle: Hides the bottom gesture pill globally across Home Screen, SystemUI & all apps by default while preserving 90Hz swipe gestures, with a live 'Show Bottom Navigation Bar' toggle in Settings -> Realme X2 Pro\n\u2022 Zero User Data Loss & Locked 90Hz Smoothness Preserved: Home screen layout (launcher.db), Adreno 640 OpenGL ES 3.2 HWUI, Codec2 4K60/1080p60, Quad-Lens GCam 9.6, Unlimited Google Photos Backup & 50W SuperVOOC intact"
+      "changelog": "Pixel OS v1.5.2 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Pure iOS 26 Left-Right Home Screen Navigation (No Vertical Slide-Up Drawer): Removes the vertical slide-up All Apps drawer gesture on Home Screen & Dock, automatically places all existing and newly installed system/user apps onto left-right Home Screen pages (0 duplicates, Page 0/Dock/Folders preserved), and morphs the Liquid Glass 'Q Search' capsule into real-time 90Hz iOS 26 page dots ('\u2022 \u2022') during horizontal swipes\n\u2022 Authentic 1:1 iOS 26 System & App Store Icon Suite: Locked v1.3 multi-plane Phone, Messages & Settings icons, Play Store -> 1:1 iOS 26 App Store, supersampled multi-plane system icons & official 1024x1024 iOS App Store icons across Default, Dark & Clear modes\n\u2022 Lifted iOS 26 Concentric Icon-Cushion Liquid Glass Dock: Elevated dock bottom margin (62px / 23.6dp) aligned with iOS 26 SpringBoard thumb elevation, uniform 4-sided ~40px icon cushion & smooth continuous curved corners (R_dock = 96px, p = 2.65)\n\u2022 Global Hidden Bottom Navigation Bar + Live Settings Toggle: Hides the bottom gesture pill globally by default while preserving 90Hz Home Bar gestures, with a live 'Show Bottom Navigation Bar' toggle in Settings -> Realme X2 Pro"
     }
   ]
 }
