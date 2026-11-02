@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793614452,
+      "datetime": 1793617749,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "9dde9d6aa2e52da438aaccd155f960a064634d72ca80166e2f989c679453881c",
-      "sha256": "9dde9d6aa2e52da438aaccd155f960a064634d72ca80166e2f989c679453881c",
+      "id": "be6d8acb2c2173873b9bfd60987dd3af17f1780f5a8fc4e25d262152d97c2ff1",
+      "sha256": "be6d8acb2c2173873b9bfd60987dd3af17f1780f5a8fc4e25d262152d97c2ff1",
       "romtype": "PIXELOS",
-      "size": 21649625,
+      "size": 21650700,
       "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/a17-pixelos-20261101-0604/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "v1.5.3",
+      "version": "v1.5.4",
       "tag": "a17-pixelos-20261101-0604",
       "device": "RMX1931",
-      "changelog": "Pixel OS v1.5.3 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Standalone iOS Styler App (90Hz AGSL Liquid Glass): Live spherical Snell meniscus refraction & 7-band ROYGCBP dispersion studio with draggable Liquid Glass Loupe preview, Icon Appearance (Default / Dark / Clear), live Refraction Strength & Glass Frost droplet sliders, 'Q Search' / Bottom Home Bar toggles, and 1-tap 1080x2400 iOS 26 wallpapers\n\u2022 Official iOS 26 'Sky' Default Wallpaper (1080x2400): Sets Apple's iOS 26 Sky HomeScreen Liquid Glass wallpaper by default on both clean installs (SamuraiIos26WallpaperOverlay) and existing OTA upgrades (one-shot applier preserving user wallpaper choices thereafter)\n\u2022 Pixel-Exact Uniform 62 px Home Screen Vertical Geometry: Enforces identical vertical spacing across Screen Bottom -> Dock Bottom (62 px) == Dock Top -> Search Pill Bottom (62 px) == Search Pill Top -> App Rows Bottom (62 px)\n\u2022 Pure iOS 26 Left-Right Home Screen Navigation + 123 Bundled iOS 26 / App Store Icons: Vertical slide-up All Apps drawer disabled, automatic placement of all apps onto left-right pages (0 duplicates), and real-time 90Hz 'Q Search <-> \u2022 \u2022' page-dot capsule morph"
+      "changelog": "Pixel OS v1.5.4 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 True Zero-Frost Optical Crystal (0% Frost): Unblurred 540x1200 optical crystal refraction across 100% of Home Screen Dock, 'Q Search' Pill, and iOS Styler cards/preview when Glass Frost is set to 0% (zero milky veil, zero interior blur floor, full Snell meniscus bend & RGB dispersion)\n\u2022 App-Close Dock Color Lock: Eliminates dock color shift & 1000ms snap-back when opening and closing apps via layout-locked wallpaper sampling, direct wide-color window-buffer rendering, and live MultiValueAlpha invalidation\n\u2022 Standalone iOS Styler App (90Hz AGSL Liquid Glass) + Official iOS 26 'Sky' Default Wallpaper (1080x2400) + Pixel-Exact Uniform 62 px Home Screen Geometry + Pure Left-Right Navigation & 123 iOS 26 Icons"
     }
   ]
 }
