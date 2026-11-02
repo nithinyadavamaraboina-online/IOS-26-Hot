@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793635191,
+      "datetime": 1793637800,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "54d2bc73c4e34e85592feb3281d151dd0d40090b6c38ad348c4708b50ccc1750",
-      "sha256": "54d2bc73c4e34e85592feb3281d151dd0d40090b6c38ad348c4708b50ccc1750",
+      "id": "bb0e25b2538de7f417ddf40936c630ff873d0331e988eacd8b7c33e682c8a67b",
+      "sha256": "bb0e25b2538de7f417ddf40936c630ff873d0331e988eacd8b7c33e682c8a67b",
       "romtype": "PIXELOS",
-      "size": 34338635,
+      "size": 34339288,
       "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/a17-pixelos-20261101-0604/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "v1.6.2",
+      "version": "v1.6.3",
       "tag": "a17-pixelos-20261101-0604",
       "device": "RMX1931",
-      "changelog": "Pixel OS v1.6.2 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 80% Wallpaper Brightness vs 100% App Icons (3D Z-Depth Separation): Home Screen wallpaper renders at exact 80% brightness behind 100%-brightness squircle icons, specular crystal rims & labels, synced seamlessly across the Liquid Glass Dock, 'Q Search' capsule, and live 'Wallpaper Brightness (Depth)' slider in iOS Styler\n\u2022 iCall 26 System Dialer (Phone, v1.28) + iOS 26 Liquid Glass Messages (IosMessages): Pre-installed as default Android 17 Phone & SMS/MMS apps with zero-popup permissions and 1:1 iOS 26 Dock icons\n\u2022 True 0% Refraction & 0% Frost Optical Crystal + Zero App-Close Dock Color Snap + 129 Bundled iOS 26 Icons across Default, Dark & Clear modes"
+      "changelog": "Pixel OS v1.6.3 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Full 0%\u2013100% Perceptual Wallpaper Brightness Slider (s^1.65 Gamma Depth Curve): Removed 40% floor in iOS Styler so lowering 'Wallpaper Brightness (Depth)' genuinely dims bright Sky clouds down to deep dark twilight (10%\u201330%) or pure 0-nit AMOLED black (0%) behind 100%-bright icons, with live full-screen dimming in iOS Styler and dark-adaptive obsidian frost across the Liquid Glass Dock & 'Q Search' capsule\n\u2022 iCall 26 System Dialer (Phone, v1.28) + iOS 26 Liquid Glass Messages (IosMessages): Pre-installed as default Android 17 Phone & SMS/MMS apps with zero-popup permissions and 1:1 iOS 26 Dock icons\n\u2022 True 0% Refraction & 0% Frost Optical Crystal + Zero App-Close Dock Color Snap + 129 Bundled iOS 26 Icons across Default, Dark & Clear modes"
     }
   ]
 }
