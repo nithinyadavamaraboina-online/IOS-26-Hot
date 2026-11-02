@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793626717,
+      "datetime": 1793631007,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "55ee1c1b5090286c61b76c5392145a1bba0b23a255a038ff215ea134c2f474bf",
-      "sha256": "55ee1c1b5090286c61b76c5392145a1bba0b23a255a038ff215ea134c2f474bf",
+      "id": "626822bb5558c8397733c27d4e753e4294abdeacfd1366673b4810df6be77c3f",
+      "sha256": "626822bb5558c8397733c27d4e753e4294abdeacfd1366673b4810df6be77c3f",
       "romtype": "PIXELOS",
-      "size": 25826165,
+      "size": 34337957,
       "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/a17-pixelos-20261101-0604/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "v1.6.0",
+      "version": "v1.6.1",
       "tag": "a17-pixelos-20261101-0604",
       "device": "RMX1931",
-      "changelog": "Pixel OS v1.6.0 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 iOS 26 Liquid Glass Phone / Dialer (IosDialer): Native 90Hz AGSL Liquid Glass Phone & InCallService with floating 5-tab capsule bar (Favourites, Recents, Contacts, Keypad, Voicemail), circular frosted glass DTMF keypad, Dual-SIM selector, A-Z contact index scrubber, and full-screen Incoming Slide-to-Answer & Active Call UI\n\u2022 iOS 26 Liquid Glass Messages (IosMessages): Full SMS & MMS client with real AGSL refraction, curled iMessage-style speech bubbles, pinned circular contact avatars, Dual-SIM, Tapbacks, Swipe-to-Reply, Send Later, and seamless Home Screen Dock & default ROLE_DIALER / ROLE_SMS setup\n\u2022 Live iOS Styler Sync + True 0% Refraction & 0% Frost Optical Crystal + 129 Bundled iOS 26 Icons across Default, Dark & Clear modes"
+      "changelog": "Pixel OS v1.6.1 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 iCall 26 System Dialer (Phone, v1.28): Pre-installed as default Android 17 Phone & InCallService (/system/app/ICall26) with zero-popup permissions, Call Screening, Contact Posters, Slide-to-Answer In-Call UI, and 1:1 iOS 26 Liquid Glass Phone Dock icon & label\n\u2022 iOS 26 Liquid Glass Messages (IosMessages): Full SMS & MMS client with real AGSL refraction, curled iMessage-style speech bubbles, pinned circular contact avatars, Dual-SIM, Tapbacks, Swipe-to-Reply, Send Later, and seamless Home Screen Dock & default ROLE_DIALER / ROLE_SMS setup\n\u2022 Live iOS Styler Sync + True 0% Refraction & 0% Frost Optical Crystal + 129 Bundled iOS 26 Icons across Default, Dark & Clear modes"
     }
   ]
 }
