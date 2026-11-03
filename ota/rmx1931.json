@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793713826,
+      "datetime": 1793715372,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "cee0a3e3d4bf6eacf03d9bd60b239741ac68805398404eade2fe3ba7c936ab0b",
-      "sha256": "cee0a3e3d4bf6eacf03d9bd60b239741ac68805398404eade2fe3ba7c936ab0b",
+      "id": "4343577b1a655d0a5ae7b93b33023da506bc3bcd44eee544fc7c3726bb534990",
+      "sha256": "4343577b1a655d0a5ae7b93b33023da506bc3bcd44eee544fc7c3726bb534990",
       "romtype": "PIXELOS",
-      "size": 67855603,
+      "size": 67872305,
       "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/a17-pixelos-20261101-0604/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "v1.6.6",
+      "version": "v1.6.7",
       "tag": "a17-pixelos-20261101-0604",
       "device": "RMX1931",
-      "changelog": "Pixel OS v1.6.6 \u2014 1:1 iOS 26 Control Center + Settings (Jetpack Compose) on Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Adds standalone 1:1 iOS 26 Liquid Glass Control Center (IosControlCenter.apk) triggered from the top-right status bar with zero modifications to stock SystemUI: 2\u00d72 Connectivity & Now Playing platters, vertical Brightness & Volume capsules, Clear vs Tinted optics, Ambient Rain synthesizer, 90Hz/DC Dimming/Torch/Focus controls, and Power Menu\n\u2022 Wires Settings -> Control Center (Access Within Apps, Access on Lock Screen, Open Control Center) and long-press tile deep links into 1:1 IosSettings\n\u2022 Preserves pristine stock Android 17 SystemUI Notification Shade (left/center swipe), QuickStep Recents, 90Hz Liquid Glass Dock, iOS 26 Icons, iCall 26 Phone & Liquid Glass Messages"
+      "changelog": "Pixel OS v1.6.7 \u2014 1:1 iOS 26 Control Center + Settings (Jetpack Compose) on Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Adds standalone 1:1 iOS 26 Liquid Glass Control Center (IosControlCenter.apk) triggered from the top-right status bar with zero modifications to stock SystemUI: 2\u00d72 Connectivity & Now Playing platters, vertical Brightness & Volume capsules, Clear vs Tinted optics, Ambient Rain synthesizer, 90Hz/DC Dimming/Torch/Focus controls, and Power Menu\n\u2022 Wires Settings -> Control Center (Access Within Apps, Access on Lock Screen, Open Control Center) and long-press tile deep links into 1:1 IosSettings\n\u2022 Preserves pristine stock Android 17 SystemUI Notification Shade (left/center swipe), QuickStep Recents, 90Hz Liquid Glass Dock, iOS 26 Icons, iCall 26 Phone & Liquid Glass Messages"
     }
   ]
 }
