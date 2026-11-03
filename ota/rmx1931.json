@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793715372,
+      "datetime": 1793718254,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "4343577b1a655d0a5ae7b93b33023da506bc3bcd44eee544fc7c3726bb534990",
-      "sha256": "4343577b1a655d0a5ae7b93b33023da506bc3bcd44eee544fc7c3726bb534990",
+      "id": "328159b95e2ead3044fa86c30d746c9f82b8dda301afdb5f188c2f5cbc42d156",
+      "sha256": "328159b95e2ead3044fa86c30d746c9f82b8dda301afdb5f188c2f5cbc42d156",
       "romtype": "PIXELOS",
-      "size": 67872305,
+      "size": 67873523,
       "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/a17-pixelos-20261101-0604/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "v1.6.7",
+      "version": "v1.6.8",
       "tag": "a17-pixelos-20261101-0604",
       "device": "RMX1931",
-      "changelog": "Pixel OS v1.6.7 \u2014 1:1 iOS 26 Control Center + Settings (Jetpack Compose) on Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Adds standalone 1:1 iOS 26 Liquid Glass Control Center (IosControlCenter.apk) triggered from the top-right status bar with zero modifications to stock SystemUI: 2\u00d72 Connectivity & Now Playing platters, vertical Brightness & Volume capsules, Clear vs Tinted optics, Ambient Rain synthesizer, 90Hz/DC Dimming/Torch/Focus controls, and Power Menu\n\u2022 Wires Settings -> Control Center (Access Within Apps, Access on Lock Screen, Open Control Center) and long-press tile deep links into 1:1 IosSettings\n\u2022 Preserves pristine stock Android 17 SystemUI Notification Shade (left/center swipe), QuickStep Recents, 90Hz Liquid Glass Dock, iOS 26 Icons, iCall 26 Phone & Liquid Glass Messages"
+      "changelog": "Pixel OS v1.6.8 \u2014 1:1 iOS 26 Control Center Gesture & Privacy Fix on Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Hooks Home Screen right-half swipe-down in NexusLauncherRelease (v17.6.8-ios26) to open 1:1 iOS 26 Control Center directly instead of stock Android Quick Settings, while keeping left-half swipe-down for Notifications\n\u2022 Decouples DirectBoot-safe SamuraiIos26CcTrigger (TYPE_NAVIGATION_BAR_PANEL, Z-layer 25) from Compose panel creation so top-right bezel swipes work reliably across apps, Home Screen, and Lock Screen\n\u2022 Removes ACCESS_FINE_LOCATION / ACCESS_COARSE_LOCATION and WifiManager SSID polling from IosControlCenter, permanently eliminating the blue status-bar Location privacy indicator"
     }
   ]
 }
