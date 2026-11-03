@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793718254,
+      "datetime": 1793724331,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "328159b95e2ead3044fa86c30d746c9f82b8dda301afdb5f188c2f5cbc42d156",
-      "sha256": "328159b95e2ead3044fa86c30d746c9f82b8dda301afdb5f188c2f5cbc42d156",
+      "id": "c55024e4949699d1c411d64c16823ec19e1de841e7592c68c4597a8dd28ed8fc",
+      "sha256": "c55024e4949699d1c411d64c16823ec19e1de841e7592c68c4597a8dd28ed8fc",
       "romtype": "PIXELOS",
-      "size": 67873523,
+      "size": 67988573,
       "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/a17-pixelos-20261101-0604/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "v1.6.8",
+      "version": "v1.6.9",
       "tag": "a17-pixelos-20261101-0604",
       "device": "RMX1931",
-      "changelog": "Pixel OS v1.6.8 \u2014 1:1 iOS 26 Control Center Gesture & Privacy Fix on Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Hooks Home Screen right-half swipe-down in NexusLauncherRelease (v17.6.8-ios26) to open 1:1 iOS 26 Control Center directly instead of stock Android Quick Settings, while keeping left-half swipe-down for Notifications\n\u2022 Decouples DirectBoot-safe SamuraiIos26CcTrigger (TYPE_NAVIGATION_BAR_PANEL, Z-layer 25) from Compose panel creation so top-right bezel swipes work reliably across apps, Home Screen, and Lock Screen\n\u2022 Removes ACCESS_FINE_LOCATION / ACCESS_COARSE_LOCATION and WifiManager SSID polling from IosControlCenter, permanently eliminating the blue status-bar Location privacy indicator"
+      "changelog": "Pixel OS v1.6.9 \u2014 1:1 iOS 26 Notification Center, Zero Shade Glitching & True 3D Refractive Liquid Glass on Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Replaces left-half swipe-down with a 1:1 iOS 26 Liquid Glass Notification Center / Cover Sheet (88sp Liquid Glass clock + date, live NotificationListenerService squircle cards with swipe-to-clear & morphing Clear pill, Now Playing platter, and bottom Flashlight/Camera droplets)\n\u2022 Eliminates Android vs iOS shade glitching everywhere via persistent StatusBarManager.disable(DISABLE_EXPAND) when unlocked, Z-layer 31 TYPE_ACCESSIBILITY_OVERLAY windowing, and 90Hz finger-tracked Home Screen & top-bezel pull-downs (NexusLauncherRelease v17.6.9-ios26)\n\u2022 Upgrades Control Center & Notification Center from flat blur to true 3D refractive iOS 26 Liquid Glass AGSL (S-curve meniscus lens prism over sharp 540x1200 wallpaper, RGB chromatic dispersion, TIR depth groove, top caustic, 135\u00b0 specular rim wire, and exterior contact shadow)\n\u2022 Fixes Settings -> General -> Software Update launch target (IosSettings v2.0.3-ios26) and adds GitHub CDN cache-busting in SamuraiOTAUpdater v1.5"
     }
   ]
 }
