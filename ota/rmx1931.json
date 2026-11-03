@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793639391,
+      "datetime": 1793655362,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "f3c1c0780ca7fab827cd67dcf31d6a812a8c9866c1679f1b677a06e48a162d46",
-      "sha256": "f3c1c0780ca7fab827cd67dcf31d6a812a8c9866c1679f1b677a06e48a162d46",
+      "id": "170413d5f605dfe4459b93cb1b62a83b89cd383f310ae6b5e5ea79f151e196d2",
+      "sha256": "170413d5f605dfe4459b93cb1b62a83b89cd383f310ae6b5e5ea79f151e196d2",
       "romtype": "PIXELOS",
-      "size": 34340104,
+      "size": 62621297,
       "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/a17-pixelos-20261101-0604/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "v1.6.4",
+      "version": "v2.0.0",
       "tag": "a17-pixelos-20261101-0604",
       "device": "RMX1931",
-      "changelog": "Pixel OS v1.6.4 \u2014 Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Calibrated iOS 26 Liquid Glass Defaults (20% Refraction Strength, 20% Glass Blur / Frost, 70% Wallpaper Brightness Depth): Default optical parameters and iOS Styler 'Reset Defaults' / slider calibration detents now tune out-of-the-box to crisp 20% Refraction, 20% Glass Blur, and 70% perceptual s^1.65 Wallpaper Brightness behind 100%-bright Home Screen icons across Pixel Launcher, iOS Styler, and iOS Messages\n\u2022 Full 0%\u2013100% Perceptual Wallpaper Brightness Slider (s^1.65 Gamma Depth Curve): Smoothly dims Home Screen & iOS Styler backdrops down to pure 0-nit AMOLED black (0%) with dark-adaptive obsidian frost across the Liquid Glass Dock & 'Q Search' capsule\n\u2022 iCall 26 System Dialer (Phone, v1.28) + iOS 26 Liquid Glass Messages (IosMessages) + True 0% Refraction & 0% Frost Optical Crystal + 129 Bundled iOS 26 Icons"
+      "changelog": "Pixel OS v2.0.0 \u2014 iOS 26 Liquid Glass Full OS on Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Full iOS 26 SystemUI Surfaces (90Hz AGSL): Spatial Lock Screen (variable RobotoFlex typography, 3D glass rim, Live Flashlight & Camera quick-action orbs, UDFPS clearance), Swipe-Down Modular Control Center (2x2 Connectivity, Now Playing card, vertical Brightness & Volume pill sliders, 90Hz/Rotation/DND/Torch/Calculator/Camera/Styler tiles), Live Dynamic Island around 1080p center cutout (Calls, Media waveform, Clock Timers, SuperVOOC charging), and concentric Liquid Glass Notification Shade\n\u2022 3D Overlapping Stacked Card App Switcher in QuickStep Recents + Live Zero-Reboot Switch in iOS Styler v2.0 ('Full iOS 26 OS Mode' <-> 'Classic Pixel Mode' + per-surface toggles)\n\u2022 5 New Clean-Room 90Hz AGSL System Apps: Settings (IosSettings), Clock (IosClock), Calculator (IosCalculator), Notes (IosNotes), and Weather (IosWeather) alongside iCall 26 & Messages"
     }
   ]
 }
