@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793724331,
+      "datetime": 1793728592,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "c55024e4949699d1c411d64c16823ec19e1de841e7592c68c4597a8dd28ed8fc",
-      "sha256": "c55024e4949699d1c411d64c16823ec19e1de841e7592c68c4597a8dd28ed8fc",
+      "id": "88f8a1c806de0df3ba1265fa08bf39d2e5eb96dea9be8879a5b43fb7d8879e1d",
+      "sha256": "88f8a1c806de0df3ba1265fa08bf39d2e5eb96dea9be8879a5b43fb7d8879e1d",
       "romtype": "PIXELOS",
-      "size": 67988573,
+      "size": 68027374,
       "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/a17-pixelos-20261101-0604/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "v1.6.9",
+      "version": "v1.7.0",
       "tag": "a17-pixelos-20261101-0604",
       "device": "RMX1931",
-      "changelog": "Pixel OS v1.6.9 \u2014 1:1 iOS 26 Notification Center, Zero Shade Glitching & True 3D Refractive Liquid Glass on Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Replaces left-half swipe-down with a 1:1 iOS 26 Liquid Glass Notification Center / Cover Sheet (88sp Liquid Glass clock + date, live NotificationListenerService squircle cards with swipe-to-clear & morphing Clear pill, Now Playing platter, and bottom Flashlight/Camera droplets)\n\u2022 Eliminates Android vs iOS shade glitching everywhere via persistent StatusBarManager.disable(DISABLE_EXPAND) when unlocked, Z-layer 31 TYPE_ACCESSIBILITY_OVERLAY windowing, and 90Hz finger-tracked Home Screen & top-bezel pull-downs (NexusLauncherRelease v17.6.9-ios26)\n\u2022 Upgrades Control Center & Notification Center from flat blur to true 3D refractive iOS 26 Liquid Glass AGSL (S-curve meniscus lens prism over sharp 540x1200 wallpaper, RGB chromatic dispersion, TIR depth groove, top caustic, 135\u00b0 specular rim wire, and exterior contact shadow)\n\u2022 Fixes Settings -> General -> Software Update launch target (IosSettings v2.0.3-ios26) and adds GitHub CDN cache-busting in SamuraiOTAUpdater v1.5"
+      "changelog": "Pixel OS v1.7.0 \u2014 1:1 iOS 26 Lock Screen, Dock-Grade Liquid Glass & Zero-Glitch Gestures on Android 17 for Realme X2 Pro (RMX1931)\n\u2022 New 1:1 iOS 26 Liquid Glass Lock Screen (IosControlCenter v1.7.0-ios26): oversized hero refractive Liquid Glass clock, circular widgets, stacked bottom notifications, expanded Apple Music platter, Goodix G3 optical UDFPS zone, and Flashlight/Camera droplets + customization in Settings -> Wallpaper & Lock Screen\n\u2022 Calibrated Control Center & Notification Center AGSL Liquid Glass 1:1 to the Home Screen Dock (calm 20% circleMap meniscus refraction & frost, subtle 2.35dp dispersion, zero heavy inner groove/wall glare, and hair-fine 0.58dp 34\u00b0 specular rim)\n\u2022 Eliminated the 1% visible -> blanking glitch on both left and right pull-downs (removed shade-collapse self-dismiss feedback loop, monotonic swipe sequence guard, and window-focus handoff protection in NexusLauncherRelease v17.7.0-ios26)\n\u2022 Fixed left Notification Center & right Control Center swipe-up-to-close via 90Hz NestedScrollConnection + PointerEventPass.Final + Home Bar velocity tracking"
     }
   ]
 }
