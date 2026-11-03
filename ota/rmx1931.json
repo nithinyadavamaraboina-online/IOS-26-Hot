@@ -1,17 +1,17 @@
 {
   "response": [
     {
-      "datetime": 1793655362,
+      "datetime": 1793710112,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "170413d5f605dfe4459b93cb1b62a83b89cd383f310ae6b5e5ea79f151e196d2",
-      "sha256": "170413d5f605dfe4459b93cb1b62a83b89cd383f310ae6b5e5ea79f151e196d2",
+      "id": "ccb0b240e8528b55f4e83d56a0a101d6a243c6d567fd98436bdd2b0e0d1ae11d",
+      "sha256": "ccb0b240e8528b55f4e83d56a0a101d6a243c6d567fd98436bdd2b0e0d1ae11d",
       "romtype": "PIXELOS",
-      "size": 62621297,
+      "size": 65259666,
       "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/a17-pixelos-20261101-0604/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "v2.0.0",
+      "version": "v1.6.5",
       "tag": "a17-pixelos-20261101-0604",
       "device": "RMX1931",
-      "changelog": "Pixel OS v2.0.0 \u2014 iOS 26 Liquid Glass Full OS on Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Full iOS 26 SystemUI Surfaces (90Hz AGSL): Spatial Lock Screen (variable RobotoFlex typography, 3D glass rim, Live Flashlight & Camera quick-action orbs, UDFPS clearance), Swipe-Down Modular Control Center (2x2 Connectivity, Now Playing card, vertical Brightness & Volume pill sliders, 90Hz/Rotation/DND/Torch/Calculator/Camera/Styler tiles), Live Dynamic Island around 1080p center cutout (Calls, Media waveform, Clock Timers, SuperVOOC charging), and concentric Liquid Glass Notification Shade\n\u2022 3D Overlapping Stacked Card App Switcher in QuickStep Recents + Live Zero-Reboot Switch in iOS Styler v2.0 ('Full iOS 26 OS Mode' <-> 'Classic Pixel Mode' + per-surface toggles)\n\u2022 5 New Clean-Room 90Hz AGSL System Apps: Settings (IosSettings), Clock (IosClock), Calculator (IosCalculator), Notes (IosNotes), and Weather (IosWeather) alongside iCall 26 & Messages"
+      "changelog": "Pixel OS v1.6.5 \u2014 Clean v1.6.4 Base + 1:1 iOS 26 Settings (Jetpack Compose) on Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Rebuilt IosSettings from scratch in Kotlin + Jetpack Compose as a 1:1 iOS 26 copy: UIKit grouped squircles, 63\u00d728dp pill switches, AGSL Liquid Glass floating Search bar, Clear/Tinted optical calibration, and 22 live hardware sub-pages\n\u2022 Restores pristine stock Android 17 SystemUI & QuickStep Recents with rock-solid 90Hz Liquid Glass Dock, iOS 26 Multi-Plane Icons, and clean iOS Styler v1.6.5\n\u2022 Keeps iCall 26 Phone + Liquid Glass Messages in Hotseat Dock and automatically removes experimental v2.0.0 apps on OTA upgrade"
     }
   ]
 }
