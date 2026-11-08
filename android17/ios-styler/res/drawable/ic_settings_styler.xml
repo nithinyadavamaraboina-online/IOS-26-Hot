@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Upper glass tuning track + lifted droplet -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M4,8.5 C4,7.67 4.67,7 5.5,7 L12,7 C12,5.62 13.12,4.5 14.5,4.5 L15.5,4.5 C16.88,4.5 18,5.62 18,7 L18.5,7 C19.33,7 20,7.67 20,8.5 C20,9.33 19.33,10 18.5,10 L18,10 C18,11.38 16.88,12.5 15.5,12.5 L14.5,12.5 C13.12,12.5 12,11.38 12,10 L5.5,10 C4.67,10 4,9.33 4,8.5 Z" />
+    <!-- Lower glass tuning track + lifted droplet -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M4,16 C4,15.17 4.67,14.5 5.5,14.5 L6,14.5 C6,13.12 7.12,12 8.5,12 L9.5,12 C10.88,12 12,13.12 12,14.5 L18.5,14.5 C19.33,14.5 20,15.17 20,16 C20,16.83 19.33,17.5 18.5,17.5 L12,17.5 C12,18.88 10.88,20 9.5,20 L8.5,20 C7.12,20 6,18.88 6,17.5 L5.5,17.5 C4.67,17.5 4,16.83 4,16 Z" />
+</vector>

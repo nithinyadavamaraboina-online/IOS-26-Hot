@@ -1,0 +1,143 @@
+# RMX1931 (samurai) Snapdragon 855+ (SM8150-AC), 90Hz EAS Schedtune, UFS 3.0, Pixel Google Camera 9.6 & 8GB LPDDR4X Tuning
+on early-init
+    # Create Qualcomm Linux 4.14 EAS /dev/stune cgroup v1 hierarchy BEFORE surfaceflinger,
+    # vendor.power-hal-aidl (libperfmgr) & system_server start (Android 17 GSI omits legacy stune subdirs)
+    mkdir /dev/stune/foreground 0775 system system
+    mkdir /dev/stune/background 0775 system system
+    mkdir /dev/stune/top-app 0775 system system
+    mkdir /dev/stune/rt 0775 system system
+    chown system system /dev/stune
+    chown system system /dev/stune/tasks
+    chown system system /dev/stune/cgroup.procs
+    chown system system /dev/stune/foreground/tasks
+    chown system system /dev/stune/foreground/cgroup.procs
+    chown system system /dev/stune/background/tasks
+    chown system system /dev/stune/background/cgroup.procs
+    chown system system /dev/stune/top-app/tasks
+    chown system system /dev/stune/top-app/cgroup.procs
+    chown system system /dev/stune/top-app/schedtune.boost
+    chown system system /dev/stune/top-app/schedtune.prefer_idle
+    chown system system /dev/stune/rt/tasks
+    chown system system /dev/stune/rt/cgroup.procs
+    chown system system /dev/stune/rt/schedtune.boost
+    chown system system /dev/stune/rt/schedtune.prefer_idle
+    chmod 0664 /dev/stune/tasks
+    chmod 0664 /dev/stune/cgroup.procs
+    chmod 0664 /dev/stune/foreground/tasks
+    chmod 0664 /dev/stune/foreground/cgroup.procs
+    chmod 0664 /dev/stune/background/tasks
+    chmod 0664 /dev/stune/background/cgroup.procs
+    chmod 0664 /dev/stune/top-app/tasks
+    chmod 0664 /dev/stune/top-app/cgroup.procs
+    chmod 0664 /dev/stune/top-app/schedtune.boost
+    chmod 0664 /dev/stune/top-app/schedtune.prefer_idle
+    chmod 0664 /dev/stune/rt/tasks
+    chmod 0664 /dev/stune/rt/cgroup.procs
+    chmod 0664 /dev/stune/rt/schedtune.boost
+    chmod 0664 /dev/stune/rt/schedtune.prefer_idle
+
+on init
+    # Re-assert /dev/stune subgroups after late cgroups.json mount & configure 90Hz low-latency EAS placement
+    mkdir /dev/stune/foreground 0775 system system
+    mkdir /dev/stune/background 0775 system system
+    mkdir /dev/stune/top-app 0775 system system
+    mkdir /dev/stune/rt 0775 system system
+    chown system system /dev/stune/foreground/tasks
+    chown system system /dev/stune/foreground/cgroup.procs
+    chown system system /dev/stune/foreground/schedtune.prefer_idle
+    chown system system /dev/stune/background/tasks
+    chown system system /dev/stune/background/cgroup.procs
+    chown system system /dev/stune/top-app/tasks
+    chown system system /dev/stune/top-app/cgroup.procs
+    chown system system /dev/stune/top-app/schedtune.boost
+    chown system system /dev/stune/top-app/schedtune.prefer_idle
+    chown system system /dev/stune/rt/tasks
+    chown system system /dev/stune/rt/cgroup.procs
+    chown system system /dev/stune/rt/schedtune.boost
+    chown system system /dev/stune/rt/schedtune.prefer_idle
+    chmod 0664 /dev/stune/foreground/tasks
+    chmod 0664 /dev/stune/foreground/cgroup.procs
+    chmod 0664 /dev/stune/foreground/schedtune.prefer_idle
+    chmod 0664 /dev/stune/background/tasks
+    chmod 0664 /dev/stune/background/cgroup.procs
+    chmod 0664 /dev/stune/top-app/tasks
+    chmod 0664 /dev/stune/top-app/cgroup.procs
+    chmod 0664 /dev/stune/top-app/schedtune.boost
+    chmod 0664 /dev/stune/top-app/schedtune.prefer_idle
+    chmod 0664 /dev/stune/rt/tasks
+    chmod 0664 /dev/stune/rt/cgroup.procs
+    chmod 0664 /dev/stune/rt/schedtune.boost
+    chmod 0664 /dev/stune/rt/schedtune.prefer_idle
+    write /dev/stune/top-app/schedtune.prefer_idle 1
+    write /dev/stune/top-app/schedtune.boost 10
+    write /dev/stune/foreground/schedtune.prefer_idle 1
+    write /dev/stune/rt/schedtune.prefer_idle 1
+    write /dev/stune/rt/schedtune.boost 15
+
+on post-fs
+    # Bind-mount unmodified Pixel Google Camera 9.6 (BSG V53) + arm64 native libs onto /system/product/app/GoogleCameraEng
+    # (/product -> /system/product symlink resolves both paths cleanly before zygote & PackageManagerService start)
+    mount none /vendor/gcam /system/product/app/GoogleCameraEng bind rec
+
+on boot
+    # Pin cpuset topology for 90Hz UI responsiveness (all 8 Kryo 485 cores incl. 2.96 GHz Prime for top-app)
+    write /dev/cpuset/top-app/cpus 0-7
+    write /dev/cpuset/foreground/cpus 0-6
+    write /dev/cpuset/background/cpus 0-2
+    write /dev/cpuset/system-background/cpus 0-3
+
+    # Kryo 485 Silver (cpu0-3, up to 1.78 GHz)
+    write /sys/devices/system/cpu/cpufreq/policy0/scaling_governor schedutil
+    write /sys/devices/system/cpu/cpufreq/policy0/schedutil/up_rate_limit_us 500
+    write /sys/devices/system/cpu/cpufreq/policy0/schedutil/down_rate_limit_us 20000
+    write /sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq 1785600
+
+    # Kryo 485 Gold (cpu4-6, up to 2.42 GHz)
+    write /sys/devices/system/cpu/cpufreq/policy4/scaling_governor schedutil
+    write /sys/devices/system/cpu/cpufreq/policy4/schedutil/up_rate_limit_us 500
+    write /sys/devices/system/cpu/cpufreq/policy4/schedutil/down_rate_limit_us 20000
+    write /sys/devices/system/cpu/cpufreq/policy4/scaling_max_freq 2419200
+
+    # Kryo 485 Prime (cpu7, Snapdragon 855+ 2.96 GHz Boost Bin)
+    write /sys/devices/system/cpu/cpufreq/policy7/scaling_governor schedutil
+    write /sys/devices/system/cpu/cpufreq/policy7/schedutil/up_rate_limit_us 500
+    write /sys/devices/system/cpu/cpufreq/policy7/schedutil/down_rate_limit_us 20000
+    write /sys/devices/system/cpu/cpufreq/policy7/scaling_max_freq 2956800
+
+    # Enable Synaptics S3706 Hardware Tap-to-Wake early & ensure HBM overdrive starts unlocked
+    write /proc/touchpanel/double_tap_enable 1
+    write /proc/touchpanel/oplus_tp_limit_enable 1
+    write /proc/touchpanel/oplus_tp_direction 0
+    write /sys/kernel/oppo_display/hbm 0
+    write /sys/kernel/oppo_display/dimlayer_hbm 0
+
+on property:sys.boot_completed=1
+    # Re-confirm cpuset & EAS stune prefer_idle after vendor post-boot scripts settle
+    write /dev/cpuset/top-app/cpus 0-7
+    write /dev/cpuset/foreground/cpus 0-6
+    write /dev/cpuset/background/cpus 0-2
+    write /dev/cpuset/system-background/cpus 0-3
+    write /dev/stune/top-app/schedtune.prefer_idle 1
+    write /dev/stune/foreground/schedtune.prefer_idle 1
+    write /dev/stune/rt/schedtune.prefer_idle 1
+    write /dev/stune/rt/schedtune.boost 15
+    # UFS 3.0 (1d84000.ufshc) low-latency readahead & queue tuning
+    write /sys/block/sda/queue/read_ahead_kb 128
+    write /sys/block/sda/queue/nr_requests 64
+    write /sys/block/sde/queue/read_ahead_kb 128
+    write /sys/block/sdf/queue/read_ahead_kb 128
+    write /sys/block/sdf/queue/nr_requests 64
+    write /sys/block/dm-0/queue/read_ahead_kb 128
+    write /sys/block/dm-1/queue/read_ahead_kb 128
+
+    # 8GB LPDDR4X + LZ4 zRAM VM tuning (swappiness=60 matches Official PixelOS 17.0 & avoids Chrome tab zRAM stalls)
+    write /proc/sys/vm/page-cluster 0
+    write /proc/sys/vm/swappiness 60
+    write /proc/sys/vm/dirty_background_ratio 5
+    write /proc/sys/vm/dirty_ratio 20
+    write /proc/sys/vm/vfs_cache_pressure 100
+
+    # Clean initial UDFPS dimlayer & Sunlight HBM state so MIPI DCS brightness slider works immediately
+    write /sys/kernel/oppo_display/hbm 0
+    write /sys/kernel/oppo_display/notify_fppress 0
+    write /sys/kernel/oppo_display/dimlayer_hbm 0

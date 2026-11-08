@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Radiant golden iOS sun -->
+    <path android:pathData="M43,43 m-14,0 a14,14 0 1,0 28,0 a14,14 0 1,0 -28,0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="33"
+                android:startY="31"
+                android:endX="53"
+                android:endY="55"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FFFFE652" />
+                <item android:offset="1.0" android:color="#FFFFA800" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Fluffy translucent Liquid Glass cloud -->
+    <path
+        android:strokeColor="#66FFFFFF"
+        android:strokeWidth="1.2"
+        android:pathData="M36,72 L70,72 C76.1,72 81,67.1 81,61 C81,55.4 76.8,50.8 71.4,50.1 C69.4,42.6 62.5,37 54.4,37 C45.4,37 37.9,43.8 36.9,52.5 C31.3,53.2 27,57.9 27,63.6 C27,68.3 31.0,72 36,72 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="54"
+                android:startY="37"
+                android:endX="54"
+                android:endY="72"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FAFFFFFF" />
+                <item android:offset="1.0" android:color="#D6E6F4FF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

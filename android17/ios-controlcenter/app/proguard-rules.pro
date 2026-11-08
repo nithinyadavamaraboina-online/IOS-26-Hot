@@ -1,0 +1,16 @@
+-keepclassmembers class androidx.compose.** { *; }
+-keep class com.realme.samurai.controlcenter.** { *; }
+-keep class * extends android.view.InputEventReceiver { *; }
+-keep class * extends android.app.TaskStackListener { *; }
+-keep interface com.android.internal.policy.IKeyguardDismissCallback { *; }
+-keep class * extends com.android.internal.policy.IKeyguardDismissCallback$Stub { *; }
+-keepnames class kotlinx.coroutines.** { *; }
+-dontwarn kotlinx.coroutines.**
+-dontwarn android.view.InputChannel
+-dontwarn android.view.InputMonitor
+-dontwarn android.view.InputEventReceiver
+-dontwarn android.view.IWindowManager
+-dontwarn android.view.WindowManagerGlobal
+-dontwarn android.app.TaskStackListener
+-dontwarn android.app.ActivityTaskManager
+-dontwarn com.android.internal.policy.**

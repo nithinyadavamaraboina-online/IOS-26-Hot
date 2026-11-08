@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<config>
+    <feature name="com.google.android.feature.CONTEXTUAL_SEARCH" />
+    <allow-in-power-save package="com.realme.ota" />
+    <allow-in-data-usage-save package="com.realme.ota" />
+    <allow-in-power-save package="com.realme.samurai.parts" />
+    <allow-in-data-usage-save package="com.realme.samurai.parts" />
+    <allow-in-power-save package="com.realme.samurai.dialer" />
+    <allow-in-data-usage-save package="com.realme.samurai.dialer" />
+    <allow-in-power-save package="com.realme.samurai.messages" />
+    <allow-in-data-usage-save package="com.realme.samurai.messages" />
+    <allow-in-power-save package="com.realme.samurai.iossettings" />
+    <allow-in-data-usage-save package="com.realme.samurai.iossettings" />
+    <allow-in-power-save package="com.realme.samurai.controlcenter" />
+    <allow-in-data-usage-save package="com.realme.samurai.controlcenter" />
+    <hidden-api-whitelisted-app package="com.realme.samurai.controlcenter" />
+</config>

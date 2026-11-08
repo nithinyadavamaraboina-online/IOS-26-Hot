@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Phone</string>
+    <string name="notif_channel_calls">Phone Calls</string>
+    <string name="notif_channel_reminders">Call Reminders</string>
+</resources>

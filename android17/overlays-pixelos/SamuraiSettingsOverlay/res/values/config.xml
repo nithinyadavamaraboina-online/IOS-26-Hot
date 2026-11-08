@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Expose Smooth Display (90Hz) toggle & Goodix UDFPS Enrollment Ring in Pixel Settings -->
+    <bool name="config_show_smooth_display">true</bool>
+    <integer name="config_udfpsEnrollProgressBar">100</integer>
+
+    <!-- Route Settings -> Wallpaper & style directly to Retail Google Pixel WallpaperPickerGoogleRelease -->
+    <string name="config_styles_and_wallpaper_picker_action" translatable="false">android.intent.action.SET_WALLPAPER</string>
+    <string name="config_styles_and_wallpaper_picker_class" translatable="false">com.android.customization.picker.CustomizationPickerActivity</string>
+    <string name="config_wallpaper_picker_action" translatable="false">android.intent.action.MAIN</string>
+    <string name="config_wallpaper_picker_class" translatable="false">com.google.android.apps.wallpaper.picker.CategoryPickerActivity</string>
+    <string name="config_wallpaper_picker_launch_extra" translatable="false">com.android.wallpaper.LAUNCH_SOURCE</string>
+    <string name="config_wallpaper_picker_package" translatable="false">com.google.android.apps.wallpaper</string>
+</resources>

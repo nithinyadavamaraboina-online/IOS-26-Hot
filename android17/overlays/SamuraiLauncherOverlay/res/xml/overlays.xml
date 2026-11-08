@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<overlay xmlns:android="http://schemas.android.com/apk/res/android">
+    <item target="dimen/qsb_widget_height" value="@dimen/qsb_widget_height" />
+    <item target="dimen/qsb_default_widget_height" value="@dimen/qsb_default_widget_height" />
+    <item target="dimen/qsb_shadow_height" value="@dimen/qsb_shadow_height" />
+    <item target="dimen/min_qsb_margin" value="@dimen/min_qsb_margin" />
+</overlay>

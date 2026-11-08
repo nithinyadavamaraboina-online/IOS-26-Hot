@@ -1,0 +1,43 @@
+# RMX1931 SamuraiParts Native Hardware, Tap-to-Wake, GCam & Pixel Photos Backup Init
+on post-fs-data
+    mkdir /data/ota_package 0777 system cache
+    chmod 0777 /data/ota_package
+    mkdir /data/ota_package/hw 0777 system cache
+    chmod 0777 /data/ota_package/hw
+    mkdir /data/ota_package/hw/queue 0777 system cache
+    chmod 0777 /data/ota_package/hw/queue
+    mkdir /data/ota_package/mods_stage 0777 system cache
+    chmod 0777 /data/ota_package/mods_stage
+    restorecon_recursive /data/ota_package
+    start samurai_hw_daemon
+
+on boot
+    start samurai_gcam_sync
+
+on property:sys.boot_completed=1
+    start samurai_gcam_sync
+    start samurai_mods_sync
+
+on property:sys.user.0.ce_available=true
+    start samurai_gcam_sync
+
+service samurai_hw_daemon /system/bin/samurai_hw_daemon
+    class late_start
+    user root
+    group root system input uhid cache
+    seclabel u:r:init:s0
+
+service samurai_mods_sync /system/bin/sh /system/etc/samurai-mods-sync.sh
+    class late_start
+    user root
+    group root system cache inet
+    seclabel u:r:su:s0
+    disabled
+
+service samurai_gcam_sync /system/bin/sh /system/etc/samurai-gcam-sync.sh
+    class late_start
+    user root
+    group root system cache
+    seclabel u:r:su:s0
+    disabled
+    oneshot

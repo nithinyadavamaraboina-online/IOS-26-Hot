@@ -1,0 +1,10 @@
+# RMX1931 SamuraiParts Virtual Input Device (/dev/uinput)
+# Enables <0.5ms hardware-grade Tap-to-Close (SLEEP), Tap-to-Wake (WAKEUP), and Off-Screen Media Gestures
+# Preserves Goodix Optical UDFPS biometric unlock on next wake (unlike DevicePolicyManager.lockNow)
+
+key 142   SLEEP
+key 143   WAKEUP
+key 163   MEDIA_NEXT              WAKE_DROPPED
+key 164   MEDIA_PLAY_PAUSE        WAKE_DROPPED
+key 165   MEDIA_PREVIOUS          WAKE_DROPPED
+key 212   CAMERA                  WAKE_DROPPED

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Hide SystemUI bottom gesture handle bar visually while keeping navigation_bar_gesture_height intact -->
+    <dimen name="navigation_home_handle_width">0dp</dimen>
+    <dimen name="navigation_handle_radius">0dp</dimen>
+    <dimen name="navigation_handle_sample_horizontal_margin">0dp</dimen>
+</resources>

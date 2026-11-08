@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<overlay xmlns:android="http://schemas.android.com/apk/res/android">
+    <item target="mipmap/photos_launcher" value="@mipmap/photos_launcher" />
+    <item target="mipmap/photos_launchericon_release_adaptive" value="@mipmap/photos_launcher" />
+    <item target="mipmap/photos_round_launcher" value="@mipmap/photos_launcher" />
+</overlay>

@@ -1,0 +1,5 @@
+-keepclassmembers class androidx.compose.** { *; }
+-keep class com.realme.samurai.iossettings.IosSettingsActivity { *; }
+-keep class com.realme.samurai.iossettings.** { *; }
+-keepnames class kotlinx.coroutines.** { *; }
+-dontwarn kotlinx.coroutines.**

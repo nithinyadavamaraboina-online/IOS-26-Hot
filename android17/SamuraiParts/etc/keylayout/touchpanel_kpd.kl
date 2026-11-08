@@ -1,0 +1,6 @@
+# RMX1931 Synaptics S3706 Black-Screen Gesture Keypad (touchpanel_kpd)
+# Maps Oppo/Realme kernel gesture keycodes so Tap-to-Wake works natively in InputReader
+
+key 142   SLEEP
+key 143   WAKEUP
+key 247   WAKEUP

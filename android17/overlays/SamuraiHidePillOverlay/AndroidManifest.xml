@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.realme.samurai.overlay.hidepill"
+    android:versionCode="17050"
+    android:versionName="v1.5">
+    <uses-sdk android:minSdkVersion="33" android:targetSdkVersion="35" />
+    <application android:hasCode="false" android:label="RMX1931 Hide Gesture Pill Overlay" />
+    <overlay
+        android:targetPackage="com.android.systemui"
+        android:isStatic="false"
+        android:priority="99" />
+</manifest>

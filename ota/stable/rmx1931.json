@@ -1,0 +1,18 @@
+{
+  "response": [
+    {
+      "datetime": 1794170000,
+      "filename": "RMX1931-Android17-PixelOS-OTA.zip",
+      "id": "29085288dd8d140d740f9659c7131d8675a7fb5fb1a8b21e12147fc51a84bd49",
+      "sha256": "29085288dd8d140d740f9659c7131d8675a7fb5fb1a8b21e12147fc51a84bd49",
+      "romtype": "PIXELOS",
+      "channel": "stable",
+      "size": 41446881,
+      "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/pixelos-stable-v2.1.5/RMX1931-Android17-PixelOS-OTA.zip",
+      "version": "v2.1.5",
+      "tag": "pixelos-stable-v2.1.5",
+      "device": "RMX1931",
+      "changelog": "Pixel OS v2.1.5 \u2014 Pure Retail Google PixelOS Stable Update for Realme X2 Pro (RMX1931)\n\u2022 Goodix G3 Optical UDFPS Registration & Unlock Fix: fixed Android 17 HidlFingerprintSensorConfig sensorType=0 (TYPE_UNKNOWN) -> 3 (TYPE_UDFPS_OPTICAL) + halControlsIllumination=true in services.jar, started vendor.cdsprpcd CDSP FastRPC daemon for libhvx_proxy_stub.so feature extraction, and granted SELinux vendor_firmware_file + vendor_hal_dspmanager_client + hal_cryptoeng_client permissions\n\u2022 Double-Tap Home Screen to Lock Fix: moved Home Screen double-tap sleep from raw touchpanel coordinate polling to WindowManager Session.sendWallpaperCommand('android.wallpaper.tap') so typing/scrolling never triggers accidental screen locks while Status Bar & Lock Screen double-tap to sleep remain active\n\u2022 Developer Options Force-Close Fix: granted system_app / platform_app SELinux property_service set permissions for logpersistd_logging_prop and debug/logd properties\n\u2022 Compact Wireless Patch OTA (~40 MiB) + Dual EXT4/F2FS /data + 4K60 Gyro-EIS3 GCam 9.6 + Pure Google PixelOS Stable Experience"
+    }
+  ]
+}

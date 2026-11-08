@@ -1,0 +1,246 @@
+package com.realme.samurai.messages
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
+import com.github.takahirom.roborazzi.captureRoboImage
+import com.realme.samurai.messages.data.local.MessageMeta
+import com.realme.samurai.messages.data.model.Contact
+import com.realme.samurai.messages.data.model.Conversation
+import com.realme.samurai.messages.data.model.Message
+import com.realme.samurai.messages.data.model.MessageStatus
+import com.realme.samurai.messages.data.model.Reaction
+import com.realme.samurai.messages.ui.chat.ChatContent
+import com.realme.samurai.messages.ui.chat.ChatUiState
+import com.realme.samurai.messages.ui.chat.SendLaterSheet
+import com.realme.samurai.messages.ui.components.IosDialogHost
+import com.realme.samurai.messages.ui.components.IosDialogs
+import com.realme.samurai.messages.ui.conversations.ConversationListContent
+import com.realme.samurai.messages.ui.conversations.ConversationListUiState
+import com.realme.samurai.messages.ui.settings.PersonalizePage
+import com.realme.samurai.messages.ui.settings.SettingsScreen
+import com.realme.samurai.messages.ui.theme.LiquidMessagesTheme
+import org.junit.After
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+
+/**
+ * v1.8 design checks: collapsing inbox bar, pins, iOS alerts / action sheets,
+ * settings + personalization, picker wheels and two-sided tapbacks.
+ * Run: gradlew :app:testDebugUnitTest --tests "*DesignShots*"
+ */
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34], qualifiers = "w393dp-h852dp-xxhdpi")
+class DesignShots {
+
+    @get:Rule
+    val compose = createComposeRule()
+
+    private val now = System.currentTimeMillis()
+
+    @After fun tearDown() = IosDialogs.dismissAll()
+
+    private fun shot(name: String, dark: Boolean = false, before: () -> Unit = {}, content: @Composable () -> Unit) {
+        compose.setContent { LiquidMessagesTheme(darkTheme = dark) { IosDialogHost { content() } } }
+        compose.waitForIdle()
+        before()
+        compose.mainClock.advanceTimeBy(1500)
+        compose.waitForIdle()
+        compose.onRoot().captureRoboImage("build/outputs/roborazzi/design_$name.png")
+    }
+
+    private val conversations = listOf(
+        Conversation(1, "+989121112233", "Sara Ahmadi", "On my way!", now - 2 * 60_000, isOutgoingSnippet = true),
+        Conversation(2, "+989351234567", "Ali Rezaei", "Did you see the photos? 📷", now - 35 * 60_000, unreadCount = 2),
+        Conversation(3, "+15551234567", "Olivia Rico", "Let's catch up this weekend", now - 3 * 3600_000),
+        Conversation(4, "+989120001111", null, "Your verification code is 482913", now - 26 * 3600_000),
+        Conversation(5, "+989125556677", "مریم", "باشه، خبرت می‌کنم 🙏", now - 3 * 86_400_000),
+        Conversation(7, "+15557654321", "Alex Morgan", "Thanks again! 🙌", now - 9 * 86_400_000),
+        Conversation(8, "+15557654322", "Jordan Lee", "See you at 7", now - 10 * 86_400_000),
+    )
+
+    @Composable
+    private fun inbox() = ConversationListContent(
+        state = ConversationListUiState(conversations = conversations, isLoading = false),
+        onSearchChange = {},
+        onConversationClick = { _, _ -> },
+        onNewMessage = {},
+        onDeleteThread = {},
+        pinned = listOf(1L, 2L, 3L),
+        muted = setOf(7L),
+    )
+
+    @Test fun inboxLight() = shot("inbox") { inbox() }
+    @Test fun inboxDark() = shot("inbox_dark", dark = true) { inbox() }
+
+    @Test fun deleteAlert() = shot("alert", before = {
+        IosDialogs.alert(
+            "Delete Conversation?",
+            "This conversation will be deleted from this phone. This action cannot be undone.",
+            IosDialogs.Action("Cancel", IosDialogs.Role.CANCEL),
+            IosDialogs.Action("Delete", IosDialogs.Role.DESTRUCTIVE),
+        )
+    }) { inbox() }
+
+    @Test fun deleteAlertDark() = shot("alert_dark", dark = true, before = {
+        IosDialogs.alert(
+            "Delete Conversation?",
+            "This conversation will be deleted from this phone. This action cannot be undone.",
+            IosDialogs.Action("Cancel", IosDialogs.Role.CANCEL),
+            IosDialogs.Action("Delete", IosDialogs.Role.DESTRUCTIVE),
+        )
+    }) { inbox() }
+
+    @Test fun actionSheet() = shot("action_sheet", before = {
+        IosDialogs.actionSheet(
+            null,
+            "This message will be deleted from this phone.",
+            IosDialogs.Action("Delete Message", IosDialogs.Role.DESTRUCTIVE),
+        )
+    }) { chat() }
+
+    @Test fun hud() = shot("hud", before = { IosDialogs.notice("Pinned", com.realme.samurai.messages.ui.components.IosIcons.Pin) }) { inbox() }
+
+    @Test fun settings() = shot("settings") { SettingsScreen(onBack = {}) }
+    @Test fun personalize() = shot("personalize") { PersonalizePage(onBack = {}) }
+    @Test fun personalizeDark() = shot("personalize_dark", dark = true) { PersonalizePage(onBack = {}) }
+    @OptIn(com.github.takahirom.roborazzi.ExperimentalRoborazziApi::class)
+    @Test fun sendLater() {
+        compose.setContent { LiquidMessagesTheme(darkTheme = false) { SendLaterSheet(onPick = {}, onDismiss = {}) } }
+        compose.waitForIdle()
+        compose.onNodeWithText("Custom…").performClick()
+        compose.mainClock.advanceTimeBy(1500)
+        compose.waitForIdle()
+        com.github.takahirom.roborazzi.captureScreenRoboImage("build/outputs/roborazzi/design_send_later.png")
+    }
+
+    private fun m(id: Long, body: String, out: Boolean, minsAgo: Long) = Message(
+        id = id, threadId = 1, address = if (out) "" else "+989121112233", body = body,
+        timestamp = now - minsAgo * 60_000, isOutgoing = out,
+        status = if (out) MessageStatus.DELIVERED else MessageStatus.RECEIVED,
+    )
+
+    @Composable
+    private fun chat() {
+        val msgs = listOf(
+            m(1, "Dinner at 8?", false, 30),
+            m(2, "Perfect, see you there!", true, 28),
+            m(3, "I'll bring dessert 🍰", false, 20),
+        )
+        ChatContent(
+            state = ChatUiState(
+                messages = msgs,
+                contact = Contact("+989121112233", "Sara Ahmadi"),
+                meta = mapOf(
+                    // Both people reacted to the same bubble.
+                    2L to MessageMeta(reaction = Reaction.LOVE, theirReaction = Reaction.LAUGH),
+                    3L to MessageMeta(theirReaction = Reaction.LIKE),
+                    1L to MessageMeta(reaction = Reaction.LIKE),
+                ),
+            ),
+            inputText = "",
+            onInputChange = {},
+            onSend = {},
+            onBack = {},
+        )
+    }
+
+    @Test fun reactions() = shot("reactions") { chat() }
+
+    @Test fun searchPage() = shot("conv_search") {
+        val msgs = listOf(
+            m(1, "Dinner at 8?", false, 300), m(2, "Dinner sounds great", true, 200), m(3, "Where for dinner?", false, 20),
+        )
+        com.realme.samurai.messages.ui.contactinfo.SearchPage(msgs, "Sara", onBack = {})
+    }
+
+    @Test fun sharedGrid() = shot("conv_shared") {
+        val msgs = listOf(
+            m(1, "Look https://example.com/menu", false, 300),
+            m(2, "📍 My Location\nhttps://maps.google.com/?q=35.6997,51.338", true, 200),
+        )
+        val shared = com.realme.samurai.messages.ui.contactinfo.SharedContent.from(msgs)
+        androidx.compose.foundation.layout.Column(
+            androidx.compose.ui.Modifier.fillMaxSize().background(com.realme.samurai.messages.ui.theme.LiquidTheme.colors.groupedBackground),
+        ) {
+            androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.height(80.dp))
+            com.realme.samurai.messages.ui.contactinfo.SharedCategoryGrid(shared) {}
+        }
+    }
+
+    @Test fun contactInfo() = shot("contact_info", dark = true) {
+        com.realme.samurai.messages.ui.contactinfo.ContactInfoScreen(threadId = -1, address = "+989121112233", onBack = {})
+    }
+    @Test fun contactInfoLight() = shot("contact_info_light") {
+        com.realme.samurai.messages.ui.contactinfo.ContactInfoScreen(threadId = -1, address = "+989121112233", onBack = {})
+    }
+
+    @Test fun recentlyDeleted() {
+        val trash = androidx.test.core.app.ApplicationProvider.getApplicationContext<MessagesApplication>().container.trash
+        val day = 86_400_000L
+        trash.trashThread(com.realme.samurai.messages.data.local.TrashStore.TrashedThread(11, now, now - 3 * day, "+989121112233", "Sara Ahmadi", "See you tomorrow 👋", 42))
+        trash.trashThread(com.realme.samurai.messages.data.local.TrashStore.TrashedThread(12, now, now - 20 * day, "+15551234567", null, "Your code is 482913", 3))
+        trash.trashMessage(com.realme.samurai.messages.data.local.TrashStore.TrashedMessage(99, 13, now - day, "+989351234567", "Oops, wrong chat"))
+        shot("recently_deleted") { com.realme.samurai.messages.ui.deleted.RecentlyDeletedScreen(onBack = {}) }
+    }
+
+    @Test fun inboxScrolled() = shot("inbox_scrolled", before = {
+        compose.onRoot().performTouchInput { swipeUp(startY = centerY + 300f, endY = centerY - 500f) }
+    }) {
+        ConversationListContent(
+            state = ConversationListUiState(
+                conversations = conversations + conversations.map { it.copy(threadId = it.threadId + 100) },
+                isLoading = false,
+            ),
+            onSearchChange = {},
+            onConversationClick = { _, _ -> },
+            onNewMessage = {},
+            onDeleteThread = {},
+        )
+    }
+
+    @Test fun newGroup() {
+        val repo = androidx.test.core.app.ApplicationProvider.getApplicationContext<MessagesApplication>().container.smsRepository
+        val vm = com.realme.samurai.messages.ui.newmessage.NewMessageViewModel(repo)
+        vm.onPickContact(Contact("+989121112233", "Sara Ahmadi"))
+        vm.onPickContact(Contact("+989351234567", "Ali Rezaei"))
+        vm.onPickContact(Contact("+15551234567", "Olivia Rico"))
+        vm.onInputChange("Dinner Friday? 🍕")
+        shot("new_group") { com.realme.samurai.messages.ui.newmessage.NewMessageSheet(onDismiss = {}, onMessageSent = { _, _ -> }, viewModel = vm) }
+    }
+
+    @Test fun messageTimes() {
+        val cal = java.util.Calendar.getInstance().apply { set(java.util.Calendar.HOUR_OF_DAY, 15); set(java.util.Calendar.MINUTE, 40); set(java.util.Calendar.SECOND, 0) }
+        val start = cal.timeInMillis
+        fun at(minute: Int, id: Long, body: String, out: Boolean) = Message(
+            id = id, threadId = 1, address = if (out) "" else "+989121112233", body = body,
+            timestamp = start + minute * 60_000L, isOutgoing = out,
+            status = if (out) MessageStatus.DELIVERED else MessageStatus.RECEIVED,
+        )
+        val msgs = listOf(
+            at(0, 1, "Are you coming?", false), at(0, 2, "We start at 4", false),
+            at(2, 3, "On my way", true), at(9, 4, "Traffic is bad", true),
+            at(25, 5, "No rush", false), at(60, 6, "Almost there", true),
+        )
+        shot("message_times") {
+            ChatContent(
+                state = ChatUiState(messages = msgs, contact = Contact("+989121112233", "Sara Ahmadi")),
+                inputText = "", onInputChange = {}, onSend = {}, onBack = {},
+            )
+        }
+    }
+}

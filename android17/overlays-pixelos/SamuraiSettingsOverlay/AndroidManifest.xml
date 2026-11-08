@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.realme.samurai.overlay.settings"
+    android:versionCode="17210"
+    android:versionName="v2.1.0">
+    <uses-sdk android:minSdkVersion="33" android:targetSdkVersion="35" />
+    <application android:hasCode="false" android:label="RMX1931 Pixel Settings Overlay" />
+    <overlay
+        android:targetPackage="com.android.settings"
+        android:resourcesMap="@xml/overlays"
+        android:isStatic="true"
+        android:priority="950" />
+</manifest>

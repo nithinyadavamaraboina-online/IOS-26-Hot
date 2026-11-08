@@ -1,0 +1,18 @@
+{
+  "response": [
+    {
+      "datetime": 1794169556,
+      "filename": "RMX1931-Android17-iOSBeta-OTA-v2.1.5-b4.zip",
+      "id": "a0793c2665191fe21b8d52f3a2ae211441cf0d184ad32136385cd2adc9f06c9c",
+      "sha256": "a0793c2665191fe21b8d52f3a2ae211441cf0d184ad32136385cd2adc9f06c9c",
+      "romtype": "PIXELOS",
+      "channel": "ios_beta",
+      "size": 59723973,
+      "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/ios-beta-v2.1.5-b4/RMX1931-Android17-iOSBeta-OTA-v2.1.5-b4.zip",
+      "version": "v2.1.5-b4",
+      "tag": "ios-beta-v2.1.5-b4",
+      "device": "RMX1931",
+      "changelog": "Pixel OS v2.1.5-b4 \u2014 Opt-In iOS Style UI Beta on Android 17 for Realme X2 Pro (RMX1931)\n\u2022 Goodix G3 Optical UDFPS Registration & Unlock Fix: fixed Android 17 HidlFingerprintSensorConfig sensorType=0 (TYPE_UNKNOWN) -> 3 (TYPE_UDFPS_OPTICAL) + halControlsIllumination=true in services.jar, started vendor.cdsprpcd CDSP FastRPC daemon for libhvx_proxy_stub.so feature extraction, and granted SELinux vendor_firmware_file + vendor_hal_dspmanager_client + hal_cryptoeng_client permissions\n\u2022 Full Android 17 Developer Options Launcher in iOS Settings: added 'Open Full Android Developer Options' at the top of Developer Options in IosSettings so users can access all 80+ native Android 17 Developer Options alongside the iOS quick toggles\n\u2022 Direct Single-Swipe Primary Bouncer Unlock + Single-Press Optical UDFPS Aperture (IosControlCenter v1.7.7-ios26) & 90Hz AGSL Liquid Glass Sheets"
+    }
+  ]
+}

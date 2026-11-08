@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Signature iOS Notes warm gold top band -->
+    <path android:pathData="M0,0h108v38h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="54"
+                android:startY="0"
+                android:endX="54"
+                android:endY="38"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FFFFDF38" />
+                <item android:offset="1.0" android:color="#FFFFB800" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Subtle stitched / frosted gold edge -->
+    <path
+        android:fillColor="#FFD49600"
+        android:pathData="M0,37.2h108v1.6h-108z" />
+    <!-- Crisp horizontal note lines -->
+    <path android:fillColor="#2BD0D3DE" android:pathData="M24,52h60v2.2h-60z" />
+    <path android:fillColor="#2BD0D3DE" android:pathData="M24,64h60v2.2h-60z" />
+    <path android:fillColor="#2BD0D3DE" android:pathData="M24,76h44v2.2h-44z" />
+</vector>

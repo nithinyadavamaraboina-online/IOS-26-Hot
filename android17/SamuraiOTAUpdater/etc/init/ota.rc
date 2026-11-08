@@ -1,0 +1,53 @@
+# Pixel OS 90Hz Display & Unattended TWRP @/cache/recovery/block.map OTA Engine for RMX1931 (Android 17)
+on post-fs-data
+    mkdir /data/ota_raw 0777 system cache encryption=None
+    chmod 0777 /data/ota_raw
+    restorecon_recursive /data/ota_raw
+    rm /data/ota_raw/install.ready
+    rm /data/ota_raw/apply.status
+    mkdir /data/preloads/ota_raw 0777 system cache
+    chmod 0777 /data/preloads/ota_raw
+    restorecon_recursive /data/preloads/ota_raw
+    mkdir /data/ota_package 0777 system cache
+    chmod 0777 /data/ota_package
+    restorecon_recursive /data/ota_package
+    rm /data/ota_package/install.ready
+    rm /data/ota_package/apply.status
+    exec_start ota_post_fs_cleanup
+
+on property:sys.boot_completed=1
+    chmod 0777 /data/ota_raw
+    restorecon_recursive /data/ota_raw
+    chmod 0777 /data/ota_package
+    restorecon_recursive /data/ota_package
+    start pixel_rmx_boot
+    start ota_watcher
+
+on property:sys.boot_completed=1 && property:ro.ota.channel=stable
+    setprop persist.sys.sf.disable_blurs 1
+
+on property:sys.boot_completed=1 && property:ro.ota.channel=ios_beta
+    setprop persist.sys.sf.disable_blurs 0
+
+service ota_post_fs_cleanup /system/bin/sh /system/etc/ota-post-fs.sh
+    class core
+    user root
+    group root system cache
+    seclabel u:r:su:s0
+    disabled
+    oneshot
+
+service pixel_rmx_boot /system/bin/sh /system/etc/pixel-boot.sh
+    class late_start
+    user shell
+    group shell
+    seclabel u:r:shell:s0
+    disabled
+    oneshot
+
+service ota_watcher /system/bin/sh /system/etc/ota-watcher.sh
+    class late_start
+    user root
+    group root system cache
+    seclabel u:r:su:s0
+    disabled

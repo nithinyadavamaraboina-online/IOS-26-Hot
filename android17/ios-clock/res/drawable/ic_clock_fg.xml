@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Crisp white iOS 26 analog dial face -->
+    <path
+        android:fillColor="#FFF8FAFC"
+        android:pathData="M54,22A32,32 0 1,1 53.99,22Z" />
+    <!-- 12 cardinal & hour indices -->
+    <path
+        android:strokeColor="#FF1C1C1E"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:pathData="M54,25.5L54,29.5 M54,78.5L54,82.5 M25.5,54L29.5,54 M78.5,54L82.5,54" />
+    <path
+        android:strokeColor="#FF636366"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:pathData="M68.2,29.3L66.4,32.5 M78.7,39.8L75.5,41.6 M78.7,68.2L75.5,66.4 M68.2,78.7L66.4,75.5 M39.8,78.7L41.6,75.5 M29.3,68.2L32.5,66.4 M29.3,39.8L32.5,41.6 M39.8,29.3L41.6,32.5" />
+    <!-- Hour & Minute hands (10:10 classic Apple pose) -->
+    <path
+        android:strokeColor="#FF141416"
+        android:strokeWidth="3.4"
+        android:strokeLineCap="round"
+        android:pathData="M54,54L41.5,44.5" />
+    <path
+        android:strokeColor="#FF141416"
+        android:strokeWidth="2.8"
+        android:strokeLineCap="round"
+        android:pathData="M54,54L69.5,40.5" />
+    <!-- Signature iOS orange sweep second hand -->
+    <path
+        android:strokeColor="#FFFF9F0A"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:pathData="M54,60L54,29" />
+    <path
+        android:fillColor="#FFFF9F0A"
+        android:pathData="M54,51.2A2.8,2.8 0 1,1 53.99,51.2Z" />
+</vector>

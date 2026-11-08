@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<overlay xmlns:android="http://schemas.android.com/apk/res/android">
+    <item target="mipmap/ic_launcher" value="@mipmap/ic_launcher" />
+    <item target="drawable/adaptive_monochrome_ic_launcher" value="@drawable/adaptive_monochrome_ic_launcher" />
+</overlay>

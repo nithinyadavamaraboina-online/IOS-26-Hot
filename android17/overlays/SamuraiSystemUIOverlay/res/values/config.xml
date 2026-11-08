@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- RMX1931 6.5" 1080x2400 OLED Exact Pixel Pitch, Frosted GPU Blur, Shade Header & QS Spacing -->
+    <item name="pixel_pitch" type="dimen" format="float">63.2</item>
+    <dimen name="max_window_blur_radius">24dp</dimen>
+    <bool name="config_supportBlurredWallpaper">true</bool>
+    <dimen name="rounded_corner_content_padding">8dp</dimen>
+    <dimen name="status_bar_padding_start">8dp</dimen>
+    <dimen name="status_bar_padding_end">8dp</dimen>
+    <dimen name="keyguard_indication_margin_bottom">14dp</dimen>
+    <dimen name="large_screen_shade_header_height">96px</dimen>
+    <dimen name="qs_header_height">96px</dimen>
+    <dimen name="qs_header_row_min_height">84px</dimen>
+    <dimen name="status_bar_header_height_keyguard">92px</dimen>
+    <dimen name="qqs_layout_margin_top">22dp</dimen>
+    <dimen name="qs_panel_padding_top">88dp</dimen>
+
+    <!-- Goodix G3 Optical UDFPS Burn-In Offset & Entry Timing -->
+    <dimen name="udfps_burn_in_offset_x">4dp</dimen>
+    <dimen name="udfps_burn_in_offset_y">4dp</dimen>
+    <integer name="config_udfpsDeviceEntryIconLongPress">100</integer>
+
+    <!-- Doze / Always-On Display State & Pocket Proximity Protection -->
+    <bool name="doze_display_state_supported">true</bool>
+    <bool name="doze_proximity_check_before_pulse">true</bool>
+
+    <!-- Retail Google Pixel Launcher, Pixel Camera (Double-Tap Power / Lockscreen) & Wallpaper Binding -->
+    <string name="config_cameraGesturePackage" translatable="false">com.google.android.GoogleCameraEng</string>
+    <string name="config_wallpaperPickerPackage" translatable="false">com.google.android.apps.wallpaper</string>
+    <string name="launcher_overlayable_package" translatable="false">com.google.android.apps.nexuslauncher</string>
+    <string name="themepicker_overlayable_package" translatable="false">com.google.android.apps.wallpaper</string>
+</resources>

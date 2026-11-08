@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer glass calculator body -->
+    <path
+        android:fillColor="#FF272B36"
+        android:strokeColor="#55FFFFFF"
+        android:strokeWidth="1.4"
+        android:pathData="M37,24 L71,24 C75.4,24 79,27.6 79,32 L79,76 C79,80.4 75.4,84 71,84 L37,84 C32.6,84 29,80.4 29,76 L29,32 C29,27.6 32.6,24 37,24 Z" />
+    <!-- Top LCD readout capsule -->
+    <path
+        android:fillColor="#FF13161E"
+        android:strokeColor="#33FFFFFF"
+        android:strokeWidth="0.9"
+        android:pathData="M36,30 L72,30 C73.7,30 75,31.3 75,33 L75,41 C75,42.7 73.7,44 72,44 L36,44 C34.3,44 33,42.7 33,41 L33,33 C33,31.3 34.3,30 36,30 Z" />
+    <!-- Row 1 buttons -->
+    <path android:fillColor="#FFA5AEBE" android:pathData="M38.5,51.5 m-4.2,0 a4.2,4.2 0 1,0 8.4,0 a4.2,4.2 0 1,0 -8.4,0" />
+    <path android:fillColor="#FFA5AEBE" android:pathData="M49.0,51.5 m-4.2,0 a4.2,4.2 0 1,0 8.4,0 a4.2,4.2 0 1,0 -8.4,0" />
+    <path android:fillColor="#FFA5AEBE" android:pathData="M59.5,51.5 m-4.2,0 a4.2,4.2 0 1,0 8.4,0 a4.2,4.2 0 1,0 -8.4,0" />
+    <path android:fillColor="#FFFF9F0A" android:pathData="M70.0,51.5 m-4.2,0 a4.2,4.2 0 1,0 8.4,0 a4.2,4.2 0 1,0 -8.4,0" />
+    <!-- Row 2 buttons -->
+    <path android:fillColor="#FF4A5062" android:pathData="M38.5,62.5 m-4.2,0 a4.2,4.2 0 1,0 8.4,0 a4.2,4.2 0 1,0 -8.4,0" />
+    <path android:fillColor="#FF4A5062" android:pathData="M49.0,62.5 m-4.2,0 a4.2,4.2 0 1,0 8.4,0 a4.2,4.2 0 1,0 -8.4,0" />
+    <path android:fillColor="#FF4A5062" android:pathData="M59.5,62.5 m-4.2,0 a4.2,4.2 0 1,0 8.4,0 a4.2,4.2 0 1,0 -8.4,0" />
+    <path android:fillColor="#FFFF9F0A" android:pathData="M70.0,62.5 m-4.2,0 a4.2,4.2 0 1,0 8.4,0 a4.2,4.2 0 1,0 -8.4,0" />
+    <!-- Row 3 zero capsule + dot + equals -->
+    <path android:fillColor="#FF4A5062" android:pathData="M38.5,69.3 L49.0,69.3 A4.2,4.2 0 0,1 49.0,77.7 L38.5,77.7 A4.2,4.2 0 0,1 38.5,69.3 Z" />
+    <path android:fillColor="#FF4A5062" android:pathData="M59.5,73.5 m-4.2,0 a4.2,4.2 0 1,0 8.4,0 a4.2,4.2 0 1,0 -8.4,0" />
+    <path android:fillColor="#FFFF9F0A" android:pathData="M70.0,73.5 m-4.2,0 a4.2,4.2 0 1,0 8.4,0 a4.2,4.2 0 1,0 -8.4,0" />
+</vector>

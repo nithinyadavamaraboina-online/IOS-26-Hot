@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<overlay xmlns:android="http://schemas.android.com/apk/res/android">
+    <item target="mipmap/ic_phone_launcher" value="@mipmap/ic_phone_launcher" />
+    <item target="mipmap/ic_phone_launchericon_adaptive_release" value="@mipmap/ic_phone_launcher" />
+    <item target="drawable/comms_logo_phone_monochrome_108" value="@drawable/comms_logo_phone_monochrome_108" />
+</overlay>

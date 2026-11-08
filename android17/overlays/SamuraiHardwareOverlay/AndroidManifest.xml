@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.realme.samurai.overlay.hardware"
+    android:versionCode="17030"
+    android:versionName="v1.4">
+    <application android:hasCode="false" android:label="RMX1931 Pixel Hardware Overlay" />
+    <overlay
+        android:targetPackage="android"
+        android:isStatic="true"
+        android:priority="950" />
+</manifest>

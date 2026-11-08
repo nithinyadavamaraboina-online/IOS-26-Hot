@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<overlay xmlns:android="http://schemas.android.com/apk/res/android">
+    <item target="bool/config_show_smooth_display" value="@bool/config_show_smooth_display" />
+    <item target="integer/config_udfpsEnrollProgressBar" value="@integer/config_udfpsEnrollProgressBar" />
+    <item target="string/config_styles_and_wallpaper_picker_action" value="@string/config_styles_and_wallpaper_picker_action" />
+    <item target="string/config_wallpaper_picker_action" value="@string/config_wallpaper_picker_action" />
+    <item target="string/config_wallpaper_picker_class" value="@string/config_wallpaper_picker_class" />
+    <item target="string/config_wallpaper_picker_launch_extra" value="@string/config_wallpaper_picker_launch_extra" />
+    <item target="string/config_wallpaper_picker_package" value="@string/config_wallpaper_picker_package" />
+    <item target="string/config_styles_and_wallpaper_picker_class" value="@string/config_styles_and_wallpaper_picker_class" />
+</overlay>

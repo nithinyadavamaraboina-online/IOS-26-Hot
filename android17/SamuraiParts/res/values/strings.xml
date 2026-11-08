@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Realme X2 Pro hardware</string>
+    <string name="settings_entry_summary">90Hz AMOLED, 50W SuperVOOC, gestures, audio &amp; Pixel backup</string>
+    <string name="tile_dc_dimming">DC Dimming</string>
+    <string name="tile_hbm">Sunlight HBM</string>
+    <string name="tile_refresh_rate">Refresh Rate</string>
+    <string name="tile_perf_mode">Performance</string>
+    <string name="tile_smart_charge">Charge Limit</string>
+    <string name="tile_otg">USB OTG</string>
+</resources>

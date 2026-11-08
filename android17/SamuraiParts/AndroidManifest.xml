@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.realme.samurai.parts"
+    android:versionCode="17050"
+    android:versionName="v1.5">
+
+    <uses-sdk android:minSdkVersion="33" android:targetSdkVersion="35" />
+
+    <!-- Standard System, Network & Hardware Control Permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.SET_WALLPAPER" />
+
+    <!-- Privileged Permissions (1:1 matched in privapp-permissions-samuraiparts.xml) -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
+    <uses-permission android:name="android.permission.REAL_GET_TASKS" />
+    <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS" />
+    <uses-permission android:name="android.permission.CHANGE_OVERLAY_PACKAGES" />
+
+    <queries>
+        <package android:name="com.google.android.apps.photos" />
+        <package android:name="org.cromite.cromite" />
+    </queries>
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@drawable/ic_samurai_parts"
+        android:roundIcon="@drawable/ic_samurai_parts"
+        android:supportsRtl="true"
+        android:directBootAware="true"
+        android:persistent="false"
+        android:theme="@style/Theme.SamuraiPixelParts">
+
+        <activity
+            android:name=".SamuraiPartsActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:label="@string/app_name">
+            <!-- Inject cleanly into Android Settings -> System -->
+            <intent-filter android:priority="900">
+                <action android:name="com.android.settings.action.IA_SETTINGS" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <!-- Long-press handler for Quick Settings tiles -->
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
+            <meta-data
+                android:name="com.android.settings.category"
+                android:value="com.android.settings.category.ia.system" />
+            <meta-data
+                android:name="com.android.settings.summary"
+                android:value="@string/settings_entry_summary" />
+            <meta-data
+                android:name="com.android.settings.order"
+                android:value="-45" />
+        </activity>
+
+        <activity
+            android:name="com.realme.samurai.glass.LiquidGlassLabActivity"
+            android:exported="false"
+            android:label="iOS 26 Liquid Glass" />
+
+        <service
+            android:name=".SamuraiMonitorService"
+            android:exported="false"
+            android:directBootAware="true"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Realme X2 Pro hardware gesture and display state synchronization" />
+        </service>
+
+        <service
+            android:name=".SamuraiHudService"
+            android:exported="false" />
+
+        <!-- 6 Hardware Quick Settings Tiles -->
+        <service
+            android:name=".DcDimmingTileService"
+            android:label="@string/tile_dc_dimming"
+            android:icon="@drawable/ic_tile_dcdim"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".HbmTileService"
+            android:label="@string/tile_hbm"
+            android:icon="@drawable/ic_tile_hbm"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".RefreshRateTileService"
+            android:label="@string/tile_refresh_rate"
+            android:icon="@drawable/ic_tile_90hz"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".PerfModeTileService"
+            android:label="@string/tile_perf_mode"
+            android:icon="@drawable/ic_tile_perf"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".SmartChargeTileService"
+            android:label="@string/tile_smart_charge"
+            android:icon="@drawable/ic_tile_battery"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".OtgTileService"
+            android:label="@string/tile_otg"
+            android:icon="@drawable/ic_tile_otg"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".SamuraiBootReceiver"
+            android:exported="true"
+            android:directBootAware="true">
+            <intent-filter>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

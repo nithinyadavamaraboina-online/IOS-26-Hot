@@ -1,0 +1,112 @@
+[CENTER]
+[SIZE=6][B]Pixel OS — Android 17 (CinnamonBun) for Realme X2 Pro [RMX1931 / samurai][/B][/SIZE]
+[SIZE=4][COLOR=rgb(66, 133, 244)][B]UNOFFICIAL • Built-in Wireless OTA Updates • GApps & Pixel 9 GCam 9.6 Included • SELinux Enforcing[/B][/COLOR][/SIZE]
+[/CENTER]
+
+[CODE]
+/*
+ * Your warranty is now void.
+ *
+ * I am not responsible for bricked devices, dead SD cards,
+ * thermonuclear war, or you getting fired because the alarm app failed. Please
+ * do some research if you have any concerns about features included in this ROM
+ * before flashing it! YOU are choosing to make these modifications, and if
+ * you point the finger at me for messing up your device, I will laugh at you.
+ */
+[/CODE]
+
+[SIZE=5][B]About This Build[/B][/SIZE]
+This is a clean, daily-driver [B]Android 17 (CP3A.260905.010, API 37.1)[/B] Retail Google Pixel OS build tailored specifically for the [B]Realme X2 Pro (RMX1931 / RMX1931L1 / samurai)[/B] running on Snapdragon 855+ ([ICODE]sm8150[/ICODE]) with full [B]SELinux Enforcing[/B] security and [B]Built-in Wireless OTA System Updates[/B].
+
+[SIZE=5][B]Key Features[/B][/SIZE]
+[LIST]
+[*][B]Built-in Dual-Channel Wireless OTA Updates ([ICODE]Settings -> System -> System update[/ICODE])[/B]:
+[LIST]
+[*][B]Stable Channel (Default — Pure Retail Google Pixel OS, v2.1.4)[/B]: Quiet, rock-solid daily driver with frequent experimental UI updates paused so regular users only receive verified core hardware, kernel, and app compatibility fixes.
+[*][B]Opt-In "iOS Style UI Beta" Toggle (Default OFF)[/B]: Turn [B]iOS Style UI Beta[/B] ON anytime inside [ICODE]Settings -> System -> System update[/ICODE] to receive active experimental iOS 26 Liquid Glass UI, Lock Screen, Notification/Control Center, and iOS Dialer/Messages beta updates — or turn it OFF anytime to switch back cleanly to Pure Google Pixel OS without wiping data!
+[/LIST]
+[*][B]100% Genuine Android 17 Pixel Experience[/B]: Pre-bundled Google Play Services (GMS), Play Store, unmodified Retail Google Pixel Launcher (vertical App Drawer + bottom Search bar), stock Google Phone, stock Google Messages, stock Android Settings, Pixel Wallpaper & Style, Material 3 Expressive SystemUI, circular Pixel adaptive icons, and Roboto Flex variable typography.
+[*][B]Linux 4.14 Kernel Adaptation Layer[/B]: Full Android 17 mainline eBPF networking/tethering backport + [ICODE]zygote_next[/ICODE] isolated native renderer compatibility for Chrome 156+ and WebView.
+[*][B]Pixel 9 Google Camera 9.6 (BSG V53) + Out-of-the-Box 4K 60fps Gyro-EIS3[/B]: Patched Qualcomm Spectra 380 CHI HAL unlocking all 4 physical sensors under SELinux Enforcing ([ICODE]0.6x[/ICODE] 8MP Ultrawide, [ICODE]1.0x[/ICODE] 64MP Main HDR+ Enhanced/Night Sight, [ICODE]2.0x[/ICODE] 13MP Optical Telephoto, [ICODE]16MP[/ICODE] Front Selfie) + hardware [B]4K 60fps & 1080p 60fps Gyro-EIS3 video stabilization[/B] working out of the box with zero XML import needed (pre-seeded GCam 9.6 + Camera2 apps).
+[*][B]Realme X2 Pro Hardware Hub ([ICODE]Settings -> System -> Realme X2 Pro Settings[/ICODE])[/B]:
+[LIST]
+[*][B]90Hz Samsung AMOLED[/B]: Smooth 90Hz / Adaptive 90Hz / 60Hz Saver, One-Pulse Anti-Flicker DC Dimming, calibrated low-brightness slider + Sunlight High Brightness Mode (HBM), sRGB / DCI-P3 / Vivid color profiles, and Snapdragon 855+ EAS [ICODE]/dev/stune[/ICODE] touch-boost.
+[*][B]50W SuperVOOC Charging[/B]: Full 50W fast-charge support, Smart Charging Limit (80% / 90% / 100%), and live wattage/current/temperature telemetry.
+[*][B]Dual Stereo Audio & LRA Haptics[/B]: Dual NXP TFA9894 stereo speaker EQ presets, 165 Hz water/dust speaker cleaner, and Awinic AW8697 X-axis haptic gain control.
+[*][B]Off-Screen Gestures[/B]: Double-Tap to Wake (DT2W), Double-Tap Status Bar / Home Screen to Sleep (DT2S), Draw V for Torch, Draw O for Camera, music swipe gestures, and optional Bottom Navigation Bar visibility toggle.
+[/LIST]
+[*][B]Official PixelOS 17.0 Smoothness & Hardware Codec2 Media[/B]: Native Adreno 640 SDM HWC2 OpenGL ES 3.2 composition, Hardware Codec2 1080p60/4K60 VP9/HEVC/AVC performance points, tuned 90Hz SM8150-AC PowerHAL ([ICODE]powerhint.json[/ICODE]), and native Private DNS (DoT/QUIC) compatibility.
+[*][B]Pixel Backup & Optional Browser[/B]: Pixel XL Original Quality Google Photos backup enabled out of the box + one-tap verified Cromite Browser install.
+[/LIST]
+
+[SIZE=5][B]What's Working[/B][/SIZE]
+[LIST]
+[*]Boots cleanly with [B]SELinux Enforcing[/B]
+[*]RIL (Calls, SMS, Mobile Data, Dual-SIM VoLTE & VoWiFi)
+[*]Wi-Fi (2.4GHz / 5GHz), Wi-Fi Hotspot & USB Tethering
+[*]Bluetooth 5.0 + High-Res Audio (SBC, AAC, aptX, aptX HD, aptX TWS+, LDAC)
+[*]90Hz Display, HBM, DC Dimming & Hardware Overlays
+[*]Optical In-Display Fingerprint (Goodix G3 UDFPS)
+[*]All 4 Cameras (0.6x, 1x, 2x, Front) + 4K 60fps / 1080p 60fps Hardware Gyro-EIS3 Video Recording + Torch
+[*]50W SuperVOOC Fast Charging
+[*]Dual Stereo Speakers, Wired Headphones (3.5mm) & Microphone
+[*]NFC, Dual-Frequency GPS, Gyroscope, Proximity & Light Sensors, USB-OTG
+[*]Built-in Wireless OTA System Updates
+[/LIST]
+
+[SIZE=5][B]Known Issues[/B][/SIZE]
+[LIST]
+[*]None blocking daily-driver use. If you spot a bug, please attach a [ICODE]logcat[/ICODE] when reporting!
+[/LIST]
+
+[HR][/HR]
+
+[SIZE=5][B]Prerequisites[/B][/SIZE]
+[LIST=1]
+[*]Unlocked Bootloader on [B]Realme X2 Pro (RMX1931 / RMX1931L1 / samurai)[/B].
+[*][B]Realme UI 2.0 (Android 11, C.36 or newer) firmware[/B] already installed (verified automatically via TrustZone check).
+[*][B]TWRP Recovery 3.7.x[/B] for RMX1931.
+[*][B]DO NOT flash separate GApps[/B] — Google Play Services & Pixel apps are already included!
+[/LIST]
+
+[SIZE=5][B]How to Install — First-Time Clean Flash[/B][/SIZE]
+[I](Note: The initial Clean Flash is split into [ICODE]VendorBoot.zip[/ICODE] [~858 MiB] + [ICODE]System.zip[/ICODE] [~1.85 GiB] to stay under GitHub Releases' 2 GiB single-file limit — do NOT flash the ~40 MiB [ICODE]OTA.zip[/ICODE] for a first-time install! Both [B]EXT4[/B] and [B]F2FS[/B] [ICODE]/data[/ICODE] partitions are supported out of the box on TWRP 3.7.0_12-0+. Existing v1.x / v2.0 / v2.1.x users can update directly to Pure Pixel OS Stable v2.1.4 via the ~40 MiB Wireless OTA in [ICODE]Settings -> System -> System update[/ICODE] without wiping data!)[/I]
+[LIST=1]
+[*]Back up all important files from Internal Storage to a PC or USB drive.
+[*]Download [B]RMX1931-Android17-PixelOS-VendorBoot.zip[/B] and [B]RMX1931-Android17-PixelOS-System.zip[/B] from the GitHub Releases link below.
+[*]Boot into [B]TWRP Recovery[/B].
+[*]Go to [B]Wipe -> Advanced Wipe[/B], select [B]Dalvik / ART Cache, Cache, System, Vendor, Data[/B] (do NOT select Persist), and Swipe to Wipe.
+[*]Go to [B]Install[/B] ([I]flash order matters — enforced automatically by pre-flight guard E1000[/I]):
+   - Select [B]RMX1931-Android17-PixelOS-VendorBoot.zip[/B] [B]FIRST[/B] ([1/2]).
+   - Tap [B]Add more Zips[/B] and select [B]RMX1931-Android17-PixelOS-System.zip[/B] [B]SECOND[/B] ([2/2]).
+   - Swipe to confirm Flash.
+[*]Go to [B]Wipe -> Format Data[/B] (button on the right — [B]do NOT use "Swipe to Factory Reset / Wipe Data"[/B]), type [B]yes[/B], and confirm. Both [B]EXT4[/B] and [B]F2FS[/B] [ICODE]/data[/ICODE] work out of the box!
+[*]Tap [B]Reboot -> System[/B]. First boot takes ~2–3 minutes.
+[/LIST]
+
+[SIZE=5][B]How to Update — Built-in Wireless OTA & Opt-In "iOS Style UI Beta" (No Data Wipe)[/B][/SIZE]
+[LIST=1]
+[*]Open [B]Settings -> System -> System update[/B] on your phone.
+[*]Keep [B]iOS Style UI Beta[/B] [B]OFF[/B] for quiet, rock-solid [B]Pure Retail Google Pixel OS Stable[/B], or turn [B]iOS Style UI Beta[/B] [B]ON[/B] anytime to opt into active experimental iOS 26 Liquid Glass UI, Lock Screen, Notification/Control Center, and iOS Dialer/Messages beta updates (you can switch back to Pure Pixel OS Stable anytime by turning the toggle OFF — no data wipe required!).
+[*]Tap [B]Check for update[/B] -> [B]Download update[/B] (continues in the background or with the screen off).
+[*]Once SHA-256 verification finishes, tap [B]Reboot & install[/B] — TWRP automatically installs the update via OpenRecoveryScript and boots back into Android 17 with all your apps and data intact!
+[/LIST]
+
+[HR][/HR]
+
+[SIZE=5][B]Downloads & Links[/B][/SIZE]
+[LIST]
+[*][B]Pure Pixel OS Stable Downloads (Recommended Daily Driver — Clean Flash & OTA ZIPs + SHA256SUMS):[/B] [URL]https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/latest[/URL]
+[*][B]Opt-In "iOS Style UI Beta" Pre-Releases (All Releases):[/B] [URL]https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases[/URL]
+[*][B]GitHub Repository & Documentation (Dual-Channel OTA Manifests):[/B] [URL]https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931[/URL]
+[/LIST]
+
+[SIZE=5][B]Source Code & Credits (GPLv2 Compliance)[/B][/SIZE]
+[LIST]
+[*][B]Android OS Version:[/B] Android 17 (CP3A.260905.010, API 37.1)
+[*][B]Device:[/B] Realme X2 Pro (RMX1931 / samurai)
+[*][B]Linux Kernel Version:[/B] 4.14.356-openela-rc1-perf
+[*][B]Kernel Source (GPLv2):[/B] [URL]https://github.com/HyperTeam/android_kernel_realme_sm8150[/URL] (Upstream OpenELA 4.14 LTS: [URL]https://github.com/openela/kernel-lts[/URL])
+[*][B]Device & TWRP Reference Trees:[/B] [URL]https://github.com/HyperTeam/android_device_realme_samurai[/URL] | [URL]https://github.com/HyperTeam/twrp_device_realme_RMX1931[/URL]
+[*][B]Credits:[/B] Google AOSP/Pixel Team, PixelOS Team, HyperTeam, BSG (GCam 9.6), abtin-f (MIT Liquid Messages), Kyant0 & pandadog (Apache-2.0/MIT AGSL optical math), and uazo/cromite.
+[/LIST]

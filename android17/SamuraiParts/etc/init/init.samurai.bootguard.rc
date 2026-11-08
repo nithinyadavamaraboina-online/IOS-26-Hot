@@ -1,0 +1,11 @@
+# RMX1931 (samurai) Boot Guard & Anti-Fastboot-Trap Protection for Android 17
+on early-init
+    setprop persist.sys.disable_rescue true
+    setprop persist.sys.enable_rescue 0
+
+on post-fs-data
+    setprop persist.sys.disable_rescue true
+
+on property:sys.boot_completed=1
+    setprop sys.samurai.boot_healthy 1
+    write /data/ota_package/hw/queue/cmd_boot_healthy.req "BOOT_HEALTHY=1"
