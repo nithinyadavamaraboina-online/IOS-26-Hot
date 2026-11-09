@@ -15,6 +15,7 @@ RMX1931 (samurai) ODM Partition Optimization for Android 17 (API 37.1):
 import glob
 import os
 import shutil
+import struct
 import subprocess
 import sys
 
@@ -111,6 +112,28 @@ on property:sys.boot_completed=1
         os.chown(fp_rc, 0, 0)
         set_selinux_xattr(fp_rc, ctx)
         print("[odm-patch] Patched vendor.oplus.hardware.biometrics.fingerprint@2.1-service.rc (oppo_display + early post-fs-data start)")
+
+    # 3. Patch /odm/lib64/libgf_hal_G3.so SZAlgo::init (0x28af4) & SZAlgo::getSpmtPassOrNot (0x28b80)
+    # so vendor.fingerprint.cali=1 succeeds on panels without factory SPMT calibration data
+    gf_hal_so = os.path.join(odm_mnt, "lib64", "libgf_hal_G3.so")
+    if os.path.isfile(gf_hal_so):
+        gf_ctx = get_selinux_xattr(gf_hal_so, "u:object_r:vendor_file:s0")
+        gf_st = os.stat(gf_hal_so)
+        with open(gf_hal_so, "rb") as f:
+            gf_raw = bytearray(f.read())
+        v_init = struct.unpack_from("<I", gf_raw, 0x28AF4)[0]
+        v_spmt = struct.unpack_from("<I", gf_raw, 0x28B80)[0]
+        assert v_init in (0xB94027E8, 0x52800028), f"Unexpected libgf_hal_G3.so word at 0x28af4: {hex(v_init)}"
+        assert v_spmt in (0xB9401008, 0x52800028), f"Unexpected libgf_hal_G3.so word at 0x28b80: {hex(v_spmt)}"
+        if v_init != 0x52800028 or v_spmt != 0x52800028:
+            struct.pack_into("<I", gf_raw, 0x28AF4, 0x52800028)
+            struct.pack_into("<I", gf_raw, 0x28B80, 0x52800028)
+            with open(gf_hal_so, "wb") as f:
+                f.write(gf_raw)
+            os.chmod(gf_hal_so, gf_st.st_mode & 0o7777)
+            os.chown(gf_hal_so, gf_st.st_uid, gf_st.st_gid)
+            set_selinux_xattr(gf_hal_so, gf_ctx)
+            print("[odm-patch] Patched /odm/lib64/libgf_hal_G3.so SPMT calibration check -> vendor.fingerprint.cali=1")
 
 
 if __name__ == "__main__":

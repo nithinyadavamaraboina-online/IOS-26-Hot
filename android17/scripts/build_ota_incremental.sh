@@ -22,6 +22,9 @@ WIN_OUT="${REPO_ROOT}/work/a17/out"
 INC_STAGE="${WORK_ROOT}/work/ota_incremental"
 
 export OTA_GITHUB_REPO="${OTA_GITHUB_REPO:-nithinyadavamaraboina-online/PixelOS-Android17-RMX1931}"
+if [ -z "${OTA_BUILD_DATETIME:-}" ] && [ -f "${WORK_ROOT}/out/BUILD-MANIFEST.json" ]; then
+    OTA_BUILD_DATETIME="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["ota_metadata"]["datetime"])' "${WORK_ROOT}/out/BUILD-MANIFEST.json" 2>/dev/null || date -u +%s)"
+fi
 export OTA_BUILD_DATETIME="${OTA_BUILD_DATETIME:-$(date -u +%s)}"
 
 OTA_FULL_CUMULATIVE="${OTA_FULL_CUMULATIVE:-0}"
@@ -33,14 +36,14 @@ done
 
 if [ "${ROM_FLAVOR}" = "ios-beta" ]; then
     OTA_CHANNEL="ios_beta"
-    OTA_VERSION="${OTA_VERSION:-v2.1.5-b4}"
+    OTA_VERSION="${OTA_VERSION:-v2.1.7-b1}"
     OTA_RELEASE_TAG="${OTA_RELEASE_TAG:-ios-beta-${OTA_VERSION}}"
     ROM_FILENAME="${ROM_FILENAME:-RMX1931-Android17-iOSBeta-OTA-${OTA_VERSION}.zip}"
     MANIFEST_OUT="${MANIFEST_OUT:-${REPO_ROOT}/ota/ios-beta/rmx1931.json}"
     OTA_MANIFEST_PROP_URL="https://raw.githubusercontent.com/${OTA_GITHUB_REPO}/main/ota/ios-beta/rmx1931.json"
 elif [ "${ROM_FLAVOR}" = "pixelos" ]; then
     OTA_CHANNEL="stable"
-    OTA_VERSION="${OTA_VERSION:-v2.1.5}"
+    OTA_VERSION="${OTA_VERSION:-v2.1.7}"
     OTA_RELEASE_TAG="${OTA_RELEASE_TAG:-pixelos-stable-${OTA_VERSION}}"
     ROM_FILENAME="${ROM_FILENAME:-RMX1931-Android17-PixelOS-OTA.zip}"
     MANIFEST_OUT="${MANIFEST_OUT:-${REPO_ROOT}/ota/rmx1931.json}"
@@ -107,10 +110,14 @@ if [ "${OTA_FULL_CUMULATIVE}" = "1" ]; then
     cp -f "${SYS_SUB}/etc/samurai-mods/photos-gsi-dex.zip" "${INC_STAGE}/ota_payload/photos-gsi-dex.zip"
 fi
 cp -f "${SYS_SUB}/etc/samurai-mods/release-mods.json" "${INC_STAGE}/ota_payload/release-mods.json"
+cp -f "${SYS_SUB}/etc/udfps_icon_pressed.webp" "${INC_STAGE}/ota_payload/udfps_icon_pressed.webp"
 cp -f "${VEN_MNT}/lib64/hw/com.qti.chi.override.so" "${INC_STAGE}/ota_payload/com.qti.chi.override.so"
+cp -f "${VEN_MNT}/lib64/libfod_zpos_hook.so" "${INC_STAGE}/ota_payload/libfod_zpos_hook.so"
 cp -f "${VEN_MNT}/etc/init/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc" "${INC_STAGE}/ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc"
+cp -f "${VEN_MNT}/etc/init/android.hardware.graphics.composer@2.4-service.rc" "${INC_STAGE}/ota_payload/android.hardware.graphics.composer@2.4-service.rc"
 cp -f "${VEN_MNT}/etc/init/vendor.qti.adsprpc-service.rc" "${INC_STAGE}/ota_payload/vendor.qti.adsprpc-service.rc"
 cp -f "${ODM_MNT}/etc/init/vendor.oplus.hardware.biometrics.fingerprint@2.1-service.rc" "${INC_STAGE}/ota_payload/vendor.oplus.hardware.biometrics.fingerprint@2.1-service.rc"
+cp -f "${ODM_MNT}/lib64/libgf_hal_G3.so" "${INC_STAGE}/ota_payload/libgf_hal_G3.so"
 cp -f "${VEN_MNT}/etc/selinux/vendor_sepolicy.cil" "${INC_STAGE}/ota_payload/vendor_sepolicy.cil"
 cp -f "${VEN_MNT}/etc/selinux/vendor_property_contexts" "${INC_STAGE}/ota_payload/vendor_property_contexts"
 for vcfg in fstab.qcom media_codecs.xml media_codecs_c2.xml media_codecs_performance_c2.xml media_codecs_performance.xml powerhint.json; do
@@ -352,6 +359,7 @@ cp -f /tmp/ota_payload/default-permissions-pixel-launcher.xml "\$SYS/etc/default
 cp -f /tmp/ota_payload/default-permissions-gcam.xml "\$SYS/etc/default-permissions/default-permissions-gcam.xml"
 cp -f /tmp/ota_payload/pixel-contextual-search.xml "\$SYS/etc/sysconfig/pixel-contextual-search.xml"
 cp -f /tmp/ota_payload/samurai-mod-helper.jar "\$SYS/framework/samurai-mod-helper.jar"
+cp -f /tmp/ota_payload/udfps_icon_pressed.webp "\$SYS/etc/udfps_icon_pressed.webp"
 cp -f /tmp/ota_payload/gcastartup_uaf_fix.bin "\$SYS/etc/samurai-mods/gcastartup_uaf_fix.bin"
 cp -f /tmp/ota_payload/release-mods.json "\$SYS/etc/samurai-mods/release-mods.json"
 
@@ -448,6 +456,7 @@ for apk in \
     "\$SYS/etc/default-permissions/default-permissions-gcam.xml" \
     "\$SYS/etc/sysconfig/pixel-contextual-search.xml" \
     "\$SYS/framework/samurai-mod-helper.jar" \
+    "\$SYS/etc/udfps_icon_pressed.webp" \
     "\$SYS/etc/samurai-mods/gcastartup_uaf_fix.bin" \
     "\$SYS/etc/samurai-mods/release-mods.json"; do
     chown 0:0 "\$apk"
@@ -500,6 +509,17 @@ chown 0:0 /mnt_ven/lib64/hw/com.qti.chi.override.so
 chmod 0644 /mnt_ven/lib64/hw/com.qti.chi.override.so
 chcon u:object_r:vendor_file:s0 /mnt_ven/lib64/hw/com.qti.chi.override.so
 
+if [ -f /tmp/ota_payload/libfod_zpos_hook.so ]; then
+    cp -f /tmp/ota_payload/libfod_zpos_hook.so /mnt_ven/lib64/libfod_zpos_hook.so
+    chown 0:0 /mnt_ven/lib64/libfod_zpos_hook.so
+    chmod 0644 /mnt_ven/lib64/libfod_zpos_hook.so
+    chcon u:object_r:vendor_file:s0 /mnt_ven/lib64/libfod_zpos_hook.so
+    cp -f /tmp/ota_payload/libfod_zpos_hook.so /mnt_ven/lib64/libdisplaydebug.so
+    chown 0:0 /mnt_ven/lib64/libdisplaydebug.so
+    chmod 0644 /mnt_ven/lib64/libdisplaydebug.so
+    chcon u:object_r:vendor_file:s0 /mnt_ven/lib64/libdisplaydebug.so
+fi
+
 for vcfg in fstab.qcom media_codecs.xml media_codecs_c2.xml media_codecs_performance_c2.xml media_codecs_performance.xml powerhint.json; do
     cp -f "/tmp/ota_payload/\$vcfg" "/mnt_ven/etc/\$vcfg"
     chown 0:0 "/mnt_ven/etc/\$vcfg"
@@ -511,6 +531,12 @@ if [ -f /tmp/ota_payload/android.hardware.biometrics.fingerprint@2.3-service.sam
     chown 0:0 /mnt_ven/etc/init/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc
     chmod 0644 /mnt_ven/etc/init/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc
     chcon u:object_r:vendor_configs_file:s0 /mnt_ven/etc/init/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc
+fi
+if [ -f /tmp/ota_payload/android.hardware.graphics.composer@2.4-service.rc ]; then
+    cp -f /tmp/ota_payload/android.hardware.graphics.composer@2.4-service.rc /mnt_ven/etc/init/android.hardware.graphics.composer@2.4-service.rc
+    chown 0:0 /mnt_ven/etc/init/android.hardware.graphics.composer@2.4-service.rc
+    chmod 0644 /mnt_ven/etc/init/android.hardware.graphics.composer@2.4-service.rc
+    chcon u:object_r:vendor_configs_file:s0 /mnt_ven/etc/init/android.hardware.graphics.composer@2.4-service.rc
 fi
 if [ -f /tmp/ota_payload/vendor.qti.adsprpc-service.rc ]; then
     cp -f /tmp/ota_payload/vendor.qti.adsprpc-service.rc /mnt_ven/etc/init/vendor.qti.adsprpc-service.rc
@@ -530,6 +556,12 @@ if [ -b "\$ODM_DEV" ] && [ -f /tmp/ota_payload/vendor.oplus.hardware.biometrics.
         chown 0:0 /mnt_odm/etc/init/vendor.oplus.hardware.biometrics.fingerprint@2.1-service.rc
         chmod 0644 /mnt_odm/etc/init/vendor.oplus.hardware.biometrics.fingerprint@2.1-service.rc
         chcon u:object_r:vendor_configs_file:s0 /mnt_odm/etc/init/vendor.oplus.hardware.biometrics.fingerprint@2.1-service.rc
+        if [ -f /tmp/ota_payload/libgf_hal_G3.so ]; then
+            cp -f /tmp/ota_payload/libgf_hal_G3.so /mnt_odm/lib64/libgf_hal_G3.so
+            chown 0:0 /mnt_odm/lib64/libgf_hal_G3.so
+            chmod 0644 /mnt_odm/lib64/libgf_hal_G3.so
+            chcon u:object_r:vendor_file:s0 /mnt_odm/lib64/libgf_hal_G3.so
+        fi
         sync
         umount /mnt_odm 2>/dev/null || true
     fi
@@ -704,6 +736,7 @@ persist.vendor.fingerprint.optical.support=1
 persist.vendor.fingerprint.optical.iconlocation=244
 persist.vendor.fingerprint.optical.iconsize=190
 persist.vendor.fingerprint.fp_id=G_OPTICAL_G3
+persist.vendor.fingerprint.version=Goodix
 persist.vendor.qfp=true
 vendor.flash.locked=0
 persist.zygote.zygote_next.start_on_boot=true
@@ -753,6 +786,7 @@ persist.vendor.fingerprint.optical.support=1
 persist.vendor.fingerprint.optical.iconlocation=244
 persist.vendor.fingerprint.optical.iconsize=190
 persist.vendor.fingerprint.fp_id=G_OPTICAL_G3
+persist.vendor.fingerprint.version=Goodix
 persist.vendor.qfp=true
 vendor.flash.locked=0
 ro.sf.lcd_density=420
@@ -856,6 +890,8 @@ package_extract_file("ota_payload/pixel-contextual-search.xml", "/tmp/ota_payloa
 package_extract_file("ota_payload/samurai_hw_daemon", "/tmp/ota_payload/samurai_hw_daemon");
 package_extract_file("ota_payload/samurai_ota_bcb", "/tmp/ota_payload/samurai_ota_bcb");
 package_extract_file("ota_payload/samurai-mod-helper.jar", "/tmp/ota_payload/samurai-mod-helper.jar");
+package_extract_file("ota_payload/udfps_icon_pressed.webp", "/tmp/ota_payload/udfps_icon_pressed.webp");
+package_extract_file("ota_payload/libfod_zpos_hook.so", "/tmp/ota_payload/libfod_zpos_hook.so");
 package_extract_file("ota_payload/samurai-mods-sync.sh", "/tmp/ota_payload/samurai-mods-sync.sh");
 package_extract_file("ota_payload/samurai-gcam-sync.sh", "/tmp/ota_payload/samurai-gcam-sync.sh");
 package_extract_file("ota_payload/release-mods.json", "/tmp/ota_payload/release-mods.json");
@@ -882,8 +918,10 @@ package_extract_file("ota_payload/plat_file_contexts", "/tmp/ota_payload/plat_fi
 package_extract_file("ota_payload/plat_property_contexts", "/tmp/ota_payload/plat_property_contexts");
 package_extract_file("ota_payload/compatibility_matrix.device.xml", "/tmp/ota_payload/compatibility_matrix.device.xml");
 package_extract_file("ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc", "/tmp/ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc");
+package_extract_file("ota_payload/android.hardware.graphics.composer@2.4-service.rc", "/tmp/ota_payload/android.hardware.graphics.composer@2.4-service.rc");
 package_extract_file("ota_payload/vendor.qti.adsprpc-service.rc", "/tmp/ota_payload/vendor.qti.adsprpc-service.rc");
 package_extract_file("ota_payload/vendor.oplus.hardware.biometrics.fingerprint@2.1-service.rc", "/tmp/ota_payload/vendor.oplus.hardware.biometrics.fingerprint@2.1-service.rc");
+package_extract_file("ota_payload/libgf_hal_G3.so", "/tmp/ota_payload/libgf_hal_G3.so");
 package_extract_file("ota_payload/vendor_sepolicy.cil", "/tmp/ota_payload/vendor_sepolicy.cil");
 package_extract_file("ota_payload/vendor_property_contexts", "/tmp/ota_payload/vendor_property_contexts");
 package_extract_file("ota_payload/apply_ota.sh", "/tmp/ota_payload/apply_ota.sh");
@@ -1003,14 +1041,14 @@ out_path, dt, fname, sha, size, url, ver, tag, channel = sys.argv[1:]
 if channel == "ios_beta":
     changelog = (
         f"Pixel OS {ver} — Opt-In iOS Style UI Beta on Android 17 for Realme X2 Pro (RMX1931)\n"
-        "• Goodix G3 Optical UDFPS Registration & Unlock Fix: fixed Android 17 HidlFingerprintSensorConfig sensorType=0 (TYPE_UNKNOWN) -> 3 (TYPE_UDFPS_OPTICAL) + halControlsIllumination=true in services.jar, started vendor.cdsprpcd CDSP FastRPC daemon for libhvx_proxy_stub.so feature extraction, and granted SELinux vendor_firmware_file + vendor_hal_dspmanager_client + hal_cryptoeng_client permissions\n"
+        "• Optical UDFPS Registration & Calibration Fix (Goodix G3 / GF9500): enabled Goodix G3 SPMT panel calibration compatibility in /odm/lib64/libgf_hal_G3.so (vendor.fingerprint.cali=1), linked SDM/DRM FOD plane promotion directly into composer@2.4-service via /vendor/lib64/libdisplaydebug.so with live /sys/kernel/oppo_display/fp_state touch-state tracking, and gated the 190x190 optical lightspot overlay strictly to finger press\n"
         "• Full Android 17 Developer Options Launcher in iOS Settings: added 'Open Full Android Developer Options' at the top of Developer Options in IosSettings so users can access all 80+ native Android 17 Developer Options alongside the iOS quick toggles\n"
         "• Direct Single-Swipe Primary Bouncer Unlock + Single-Press Optical UDFPS Aperture (IosControlCenter v1.7.7-ios26) & 90Hz AGSL Liquid Glass Sheets"
     )
 else:
     changelog = (
         f"Pixel OS {ver} — Pure Retail Google PixelOS Stable Update for Realme X2 Pro (RMX1931)\n"
-        "• Goodix G3 Optical UDFPS Registration & Unlock Fix: fixed Android 17 HidlFingerprintSensorConfig sensorType=0 (TYPE_UNKNOWN) -> 3 (TYPE_UDFPS_OPTICAL) + halControlsIllumination=true in services.jar, started vendor.cdsprpcd CDSP FastRPC daemon for libhvx_proxy_stub.so feature extraction, and granted SELinux vendor_firmware_file + vendor_hal_dspmanager_client + hal_cryptoeng_client permissions\n"
+        "• Optical UDFPS Registration & Calibration Fix (Goodix G3 / GF9500): enabled Goodix G3 SPMT panel calibration compatibility in /odm/lib64/libgf_hal_G3.so (vendor.fingerprint.cali=1), linked SDM/DRM FOD plane promotion directly into composer@2.4-service via /vendor/lib64/libdisplaydebug.so with live /sys/kernel/oppo_display/fp_state touch-state tracking, and gated the 190x190 optical lightspot overlay strictly to finger press\n"
         "• Double-Tap Home Screen to Lock Fix: moved Home Screen double-tap sleep from raw touchpanel coordinate polling to WindowManager Session.sendWallpaperCommand('android.wallpaper.tap') so typing/scrolling never triggers accidental screen locks while Status Bar & Lock Screen double-tap to sleep remain active\n"
         "• Developer Options Force-Close Fix: granted system_app / platform_app SELinux property_service set permissions for logpersistd_logging_prop and debug/logd properties\n"
         "• Compact Wireless Patch OTA (~40 MiB) + Dual EXT4/F2FS /data + 4K60 Gyro-EIS3 GCam 9.6 + Pure Google PixelOS Stable Experience"

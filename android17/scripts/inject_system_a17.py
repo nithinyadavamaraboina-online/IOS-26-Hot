@@ -796,6 +796,14 @@ def main() -> int:
         os.path.join(sys_sub, "etc", "default-permissions", "default-permissions-samuraiparts.xml"),
         mode=0o644,
     )
+    install_file(
+        os.path.join(parts_src, "etc", "udfps_icon_pressed.webp"),
+        os.path.join(sys_sub, "etc", "udfps_icon_pressed.webp"),
+        mode=0o644,
+        uid=0,
+        gid=0,
+        ctx="u:object_r:system_file:s0",
+    )
 
     if is_ios_beta:
         styler_src = os.path.join(a17_dir, "ios-styler")
@@ -1219,12 +1227,12 @@ def main() -> int:
     patch_platform_selinux(sys_sub)
 
     # 7. Configure Clean Pixel OS, 90Hz SurfaceFlinger VSync, 8-core dex2oat, BootGuard & Repo OTA Props
-    build_ts = int(os.environ.get("OTA_BUILD_DATETIME", str(int(time.time()))))
+    build_ts = int(float(os.environ.get("OTA_BUILD_DATETIME", str(int(time.time())))))
     dt_str = datetime.fromtimestamp(build_ts, tz=timezone.utc).strftime("%Y%m%d-%H%M")
     ota_repo = os.environ.get("OTA_GITHUB_REPO", "nithinyadavamaraboina-online/PixelOS-Android17-RMX1931")
     default_tag = f"ios-beta-{dt_str}" if is_ios_beta else f"pixelos-stable-{dt_str}"
     ota_release_tag = os.environ.get("OTA_RELEASE_TAG", default_tag)
-    ota_version = os.environ.get("OTA_VERSION", "v2.1.5-b4" if is_ios_beta else "v2.1.5")
+    ota_version = os.environ.get("OTA_VERSION", "v2.1.7-b1" if is_ios_beta else "v2.1.7")
     if is_ios_beta:
         ota_manifest_url = f"https://raw.githubusercontent.com/{ota_repo}/main/ota/ios-beta/rmx1931.json"
     else:
@@ -1322,6 +1330,7 @@ def main() -> int:
         "persist.vendor.fingerprint.optical.iconlocation": "244",
         "persist.vendor.fingerprint.optical.iconsize": "190",
         "persist.vendor.fingerprint.fp_id": "G_OPTICAL_G3",
+        "persist.vendor.fingerprint.version": "Goodix",
         "persist.vendor.qfp": "true",
         "vendor.flash.locked": "0",
         "ro.ota.device": "RMX1931",
@@ -1421,6 +1430,7 @@ def main() -> int:
         "/system/priv-app/SamuraiParts/SamuraiParts.apk",
         "/system/etc/permissions/privapp-permissions-samuraiparts.xml",
         "/system/etc/default-permissions/default-permissions-samuraiparts.xml",
+        "/system/etc/udfps_icon_pressed.webp",
         "/system/bin/samurai_hw_daemon",
         "/system/framework/samurai-mod-helper.jar",
         "/system/etc/samurai-mods-sync.sh",

@@ -224,8 +224,165 @@ def patch_fingerprint_aidl_sensor(decoded_dir: str) -> None:
         "    iput-boolean v6, p0, Landroid/hardware/biometrics/fingerprint/SensorProps;->halControlsIllumination:Z\n\n"
         "    :cond_samurai_fp"
     )
+    src = src.replace(target, replacement, 1)
+
+    ctx_target = "    iput-object p2, p0, Lcom/android/server/biometrics/sensors/fingerprint/aidl/Sensor;->mContext:Landroid/content/Context;\n"
+    if src.count(ctx_target) != 1:
+        raise RuntimeError("Expected exact mContext assignment in fingerprint/aidl/Sensor.smali")
+    ctx_replacement = (
+        ctx_target
+        + "\n    invoke-static {p2}, Lcom/realme/samurai/pm/SamuraiUdfpsOpticalOverlay;"
+        "->init(Landroid/content/Context;)V\n"
+    )
+    src = src.replace(ctx_target, ctx_replacement, 1)
+
     with open(path, "w", encoding="utf-8") as f:
-        f.write(src.replace(target, replacement, 1))
+        f.write(src)
+
+
+def patch_udfps_optical_overlay(decoded_dir: str) -> None:
+    """
+    Hooks UdfpsHelper, HidlToAidlSessionAdapter, HidlToAidlSessionAdapter$Cancellation, and
+    HidlToAidlCallbackConverter to drive SamuraiUdfpsOpticalOverlay (190x190 calibrated
+    warm-amber lightspot at (445, 2061) on layer 33 TYPE_SECURE_SYSTEM_OVERLAY).
+    """
+    # 1. UdfpsHelper.smali: onFingerDown & onFingerUp
+    udfps_path = find_smali(
+        decoded_dir,
+        "com/android/server/biometrics/sensors/fingerprint/UdfpsHelper.smali",
+    )
+    with open(udfps_path, "r", encoding="utf-8") as f:
+        u_src = f.read()
+
+    fd_target = (
+        "    invoke-interface {p0, p1, p2, p3, p4}, "
+        "Landroid/hardware/biometrics/fingerprint/V2_3/IBiometricsFingerprint;->onFingerDown(IIFF)V"
+    )
+    if u_src.count(fd_target) != 1:
+        raise RuntimeError("Expected exact onFingerDown call in UdfpsHelper.smali")
+    fd_replacement = (
+        "    invoke-static {p1, p2, p3, p4}, Lcom/realme/samurai/pm/SamuraiUdfpsOpticalOverlay;"
+        "->onFingerDown(IIFF)V\n\n"
+        + fd_target
+    )
+    u_src = u_src.replace(fd_target, fd_replacement, 1)
+
+    fu_target = (
+        ".method public static onFingerUp(Landroid/hardware/biometrics/fingerprint/V2_1/IBiometricsFingerprint;)V\n"
+        "    .locals 2\n"
+    )
+    if u_src.count(fu_target) != 1:
+        raise RuntimeError("Expected exact onFingerUp header in UdfpsHelper.smali")
+    fu_replacement = (
+        fu_target
+        + "\n    invoke-static {}, Lcom/realme/samurai/pm/SamuraiUdfpsOpticalOverlay;->onFingerUp()V\n"
+    )
+    u_src = u_src.replace(fu_target, fu_replacement, 1)
+
+    with open(udfps_path, "w", encoding="utf-8") as f:
+        f.write(u_src)
+
+    # 2. HidlToAidlSessionAdapter.smali: session start/end & pointer cancel
+    sess_path = find_smali(
+        decoded_dir,
+        "com/android/server/biometrics/sensors/fingerprint/hidl/HidlToAidlSessionAdapter.smali",
+    )
+    with open(sess_path, "r", encoding="utf-8") as f:
+        s_src = f.read()
+
+    for m_hdr in (
+        ".method public authenticate(J)Landroid/hardware/biometrics/common/ICancellationSignal;\n    .locals 2\n",
+        ".method public detectInteraction()Landroid/hardware/biometrics/common/ICancellationSignal;\n    .locals 4\n",
+        ".method public enroll(Landroid/hardware/keymaster/HardwareAuthToken;)Landroid/hardware/biometrics/common/ICancellationSignal;\n    .locals 3\n",
+    ):
+        if s_src.count(m_hdr) != 1:
+            raise RuntimeError(f"Expected exact header in HidlToAidlSessionAdapter.smali: {m_hdr.strip()}")
+        s_src = s_src.replace(
+            m_hdr,
+            m_hdr + "\n    invoke-static {}, Lcom/realme/samurai/pm/SamuraiUdfpsOpticalOverlay;->onSessionStart()V\n",
+            1,
+        )
+
+    for end_hdr in (
+        ".method public close()V\n    .locals 1\n",
+        ".method public revokeChallenge(J)V\n    .locals 0\n",
+    ):
+        if s_src.count(end_hdr) != 1:
+            raise RuntimeError(f"Expected exact header in HidlToAidlSessionAdapter.smali: {end_hdr.strip()}")
+        s_src = s_src.replace(
+            end_hdr,
+            end_hdr + "\n    invoke-static {}, Lcom/realme/samurai/pm/SamuraiUdfpsOpticalOverlay;->onSessionEnd()V\n",
+            1,
+        )
+
+    pc_target = (
+        ".method public onPointerCancelWithContext(Landroid/hardware/biometrics/fingerprint/PointerContext;)V\n"
+        "    .locals 0\n"
+    )
+    if s_src.count(pc_target) != 1:
+        raise RuntimeError("Expected onPointerCancelWithContext in HidlToAidlSessionAdapter.smali")
+    pc_replacement = (
+        pc_target
+        + "\n    const/4 p1, 0x0\n"
+        "    invoke-virtual {p0, p1}, Lcom/android/server/biometrics/sensors/fingerprint/hidl/HidlToAidlSessionAdapter;->onPointerUp(I)V\n"
+    )
+    s_src = s_src.replace(pc_target, pc_replacement, 1)
+
+    with open(sess_path, "w", encoding="utf-8") as f:
+        f.write(s_src)
+
+    # 3. HidlToAidlSessionAdapter$Cancellation.smali: cancel()
+    canc_path = find_smali(
+        decoded_dir,
+        "com/android/server/biometrics/sensors/fingerprint/hidl/HidlToAidlSessionAdapter$Cancellation.smali",
+    )
+    with open(canc_path, "r", encoding="utf-8") as f:
+        c_src = f.read()
+
+    canc_hdr = ".method public cancel()V\n    .locals 2\n"
+    if c_src.count(canc_hdr) != 1:
+        raise RuntimeError("Expected cancel() in HidlToAidlSessionAdapter$Cancellation.smali")
+    c_src = c_src.replace(
+        canc_hdr,
+        canc_hdr + "\n    invoke-static {}, Lcom/realme/samurai/pm/SamuraiUdfpsOpticalOverlay;->onSessionEnd()V\n",
+        1,
+    )
+    with open(canc_path, "w", encoding="utf-8") as f:
+        f.write(c_src)
+
+    # 4. HidlToAidlCallbackConverter.smali: onAcquired_2_2, onAuthenticated, onEnrollResult, onError
+    cb_path = find_smali(
+        decoded_dir,
+        "com/android/server/biometrics/sensors/fingerprint/hidl/HidlToAidlCallbackConverter.smali",
+    )
+    with open(cb_path, "r", encoding="utf-8") as f:
+        cb_src = f.read()
+
+    cb_hooks = [
+        (
+            ".method public onAcquired_2_2(JII)V\n    .locals 0\n",
+            "    invoke-static {p3, p4}, Lcom/realme/samurai/pm/SamuraiUdfpsOpticalOverlay;->onAcquired(II)V\n",
+        ),
+        (
+            ".method public onAuthenticated(JIILjava/util/ArrayList;)V\n    .locals 0\n",
+            "    invoke-static {p3}, Lcom/realme/samurai/pm/SamuraiUdfpsOpticalOverlay;->onAuthenticated(I)V\n",
+        ),
+        (
+            ".method public onEnrollResult(JIII)V\n    .locals 0\n",
+            "    invoke-static {p5}, Lcom/realme/samurai/pm/SamuraiUdfpsOpticalOverlay;->onEnrollResult(I)V\n",
+        ),
+        (
+            ".method public onError(JII)V\n    .locals 0\n",
+            "    invoke-static {p3, p4}, Lcom/realme/samurai/pm/SamuraiUdfpsOpticalOverlay;->onError(II)V\n",
+        ),
+    ]
+    for hdr, hook in cb_hooks:
+        if cb_src.count(hdr) != 1:
+            raise RuntimeError(f"Expected callback header in HidlToAidlCallbackConverter.smali: {hdr.strip()}")
+        cb_src = cb_src.replace(hdr, hdr + "\n" + hook, 1)
+
+    with open(cb_path, "w", encoding="utf-8") as f:
+        f.write(cb_src)
 
 
 def main() -> int:
@@ -252,6 +409,7 @@ def main() -> int:
     patch_pms_utils(decoded_dir)
     patch_wm_session(decoded_dir)
     patch_fingerprint_aidl_sensor(decoded_dir)
+    patch_udfps_optical_overlay(decoded_dir)
 
     print("[services-mod] 3/4 Rebuilding smali & compiling SamuraiPlatformSigBridge.java...")
     run([JAVA, "-jar", APKTOOL_JAR, "b", decoded_dir, "-o", rebuilt_jar])
@@ -322,8 +480,9 @@ def main() -> int:
 
     # Verify bridge DEX header & class presence via dexdump
     dump_out = run([DEXDUMP, "-f", bridge_dex])
-    if "SamuraiPlatformSigBridge" not in run([DEXDUMP, bridge_dex]):
-        raise RuntimeError("SamuraiPlatformSigBridge missing from bridge DEX!")
+    full_dump = run([DEXDUMP, bridge_dex])
+    if "SamuraiPlatformSigBridge" not in full_dump or "SamuraiUdfpsOpticalOverlay" not in full_dump:
+        raise RuntimeError("SamuraiPlatformSigBridge or SamuraiUdfpsOpticalOverlay missing from bridge DEX!")
     print(f"[OK] Patched services.jar built & verified: {OUT_JAR} ({os.path.getsize(OUT_JAR)} bytes, +{next_dex_name})")
     return 0
 

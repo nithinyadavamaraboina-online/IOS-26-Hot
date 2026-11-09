@@ -157,6 +157,7 @@ def patch_vendor_build_prop(prop_text: str) -> str:
         "persist.vendor.fingerprint.optical.iconlocation": "244",
         "persist.vendor.fingerprint.optical.iconsize": "190",
         "persist.vendor.fingerprint.fp_id": "G_OPTICAL_G3",
+        "persist.vendor.fingerprint.version": "Goodix",
         "persist.vendor.qfp": "true",
         "vendor.flash.locked": "0",
     }
@@ -698,6 +699,27 @@ def patch_vendor_mount(vendor_mnt: str) -> None:
     if patch_file_preserving_xattr(fp23_rc, patch_fp23_rc):
         print("[vendor-patch] Optimized android.hardware.biometrics.fingerprint@2.3-service.samurai.rc")
 
+    hwc_rc = os.path.join(init_dir, "android.hardware.graphics.composer@2.4-service.rc")
+    def patch_hwc_rc(rc_text: str) -> str:
+        if "libfod_zpos_hook.so" in rc_text:
+            return rc_text
+        return rc_text.rstrip() + "\n    setenv LD_PRELOAD /vendor/lib64/libfod_zpos_hook.so\n"
+    if patch_file_preserving_xattr(hwc_rc, patch_hwc_rc):
+        print("[vendor-patch] Added LD_PRELOAD /vendor/lib64/libfod_zpos_hook.so to composer@2.4-service.rc")
+
+    work_root_bin = os.environ.get("WORK_ROOT", "/var/tmp/rmx1931-a17")
+    fod_hook_src = os.path.join(work_root_bin, "out", "bin", "libfod_zpos_hook.so")
+    if os.path.isfile(fod_hook_src):
+        for dst_name in ("libfod_zpos_hook.so", "libdisplaydebug.so"):
+            fod_hook_dst = os.path.join(vendor_mnt, "lib64", dst_name)
+            shutil.copyfile(fod_hook_src, fod_hook_dst)
+            os.chmod(fod_hook_dst, 0o644)
+            os.chown(fod_hook_dst, 0, 0)
+            set_selinux_xattr(fod_hook_dst, "u:object_r:vendor_file:s0")
+        print("[vendor-patch] Installed /vendor/lib64/libfod_zpos_hook.so & /vendor/lib64/libdisplaydebug.so (SDM/DRM FOD bridge)")
+    else:
+        raise FileNotFoundError(f"Missing {fod_hook_src} (run build_apps.sh first)")
+
     fstab_path = os.path.join(vendor_mnt, "etc", "fstab.qcom")
     if patch_file_preserving_xattr(fstab_path, patch_fstab_userdata):
         print("[vendor-patch] Patched etc/fstab.qcom /data entries for clean 4.14 ext4/f2fs mount")
@@ -915,6 +937,20 @@ def patch_vendor_mount(vendor_mnt: str) -> None:
                     if symbol_exists_in_cil(txt, sh_rw):
                         extra.append(f"(allow hal_syshelper_default {sh_rw} (dir (search read open getattr)))")
                         extra.append(f"(allow hal_syshelper_default {sh_rw} (file (ioctl read write open getattr lock append map)))")
+            if symbol_exists_in_cil(txt, "hal_graphics_composer_default"):
+                for hwc_rw in ("proc_touchpanel", "sysfs_oppo_display"):
+                    if symbol_exists_in_cil(txt, hwc_rw):
+                        extra.append(f"(allow hal_graphics_composer_default {hwc_rw} (dir (search read open getattr)))")
+                        extra.append(f"(allow hal_graphics_composer_default {hwc_rw} (file (ioctl read write open getattr lock append map)))")
+            if ss_sym:
+                for ss_rw in ("proc_touchpanel", "sysfs_oppo_display", "vendor_sysfs_fingerprint"):
+                    if symbol_exists_in_cil(txt, ss_rw):
+                        extra.append(f"(allow {ss_sym} {ss_rw} (dir (search read open getattr)))")
+                        extra.append(f"(allow {ss_sym} {ss_rw} (file (ioctl read write open getattr lock append map)))")
+            old_soter = "(typeattributeset vendor_hal_soter_client (system_app_202504 tee_202504))"
+            new_soter = "(typeattributeset vendor_hal_soter_client (system_app_202504 platform_app_202504 priv_app_202504 system_server_202504 tee_202504))"
+            if old_soter in txt:
+                txt = txt.replace(old_soter, new_soter, 1)
             old_dsp = "(typeattributeset vendor_hal_dspmanager_client (shell_202504 untrusted_app_202504 untrusted_app_29_202504 untrusted_app_27_202504 untrusted_app_25_202504))"
             new_dsp = "(typeattributeset vendor_hal_dspmanager_client (shell_202504 untrusted_app_202504 untrusted_app_29_202504 untrusted_app_27_202504 untrusted_app_25_202504 hal_fingerprint_default vendor_cdsprpcd vendor_adsprpcd hal_camera_default hal_audio_default))"
             if old_dsp in txt:

@@ -20,10 +20,10 @@ ZIPALIGN="${WORK_ROOT}/tools/android-sdk/build-tools/35.0.0/zipalign"
 
 if [ "${ROM_FLAVOR}" = "ios-beta" ]; then
     EXP_CH="ios_beta"
-    EXP_OTA_VER="${OTA_VERSION:-v2.1.5-b4}"
+    EXP_OTA_VER="${OTA_VERSION:-v2.1.6-b1}"
 elif [ "${ROM_FLAVOR}" = "pixelos" ]; then
     EXP_CH="stable"
-    EXP_OTA_VER="${OTA_VERSION:-v2.1.5}"
+    EXP_OTA_VER="${OTA_VERSION:-v2.1.6}"
 else
     echo "FAIL: Unsupported ROM_FLAVOR=${ROM_FLAVOR}"
     exit 1
@@ -197,7 +197,22 @@ grep -q "mkdir /data/vendor/fingerprint/gf_data 0770 system system" "${VEN_FP_RC
 grep -q "write /proc/touchpanel/fp_enable 1" "${VEN_FP_RC}" || { echo "FAIL: vendor fp 2.3 rc missing write /proc/touchpanel/fp_enable 1!"; exit 1; }
 grep -q "^persist.vendor.fingerprint.sensor_type=optical$" "${MNT_V}/ven/build.prop" || { echo "FAIL: vendor/build.prop missing persist.vendor.fingerprint.sensor_type=optical!"; exit 1; }
 grep -q "^persist.vendor.fingerprint.fp_id=G_OPTICAL_G3$" "${MNT_V}/ven/build.prop" || { echo "FAIL: vendor/build.prop missing persist.vendor.fingerprint.fp_id=G_OPTICAL_G3!"; exit 1; }
+grep -q "^persist.vendor.fingerprint.version=Goodix$" "${MNT_V}/ven/build.prop" || { echo "FAIL: vendor/build.prop missing persist.vendor.fingerprint.version=Goodix!"; exit 1; }
 grep -q "^persist.vendor.fingerprint.sensor_type=optical$" "${SYS_ROOT}/build.prop" || { echo "FAIL: system/build.prop missing persist.vendor.fingerprint.sensor_type=optical!"; exit 1; }
+grep -q "^persist.vendor.fingerprint.version=Goodix$" "${SYS_ROOT}/build.prop" || { echo "FAIL: system/build.prop missing persist.vendor.fingerprint.version=Goodix!"; exit 1; }
+[ -f "${SYS_ROOT}/etc/udfps_icon_pressed.webp" ] || { echo "FAIL: Missing /system/etc/udfps_icon_pressed.webp!"; exit 1; }
+[ "$(stat -c%s "${SYS_ROOT}/etc/udfps_icon_pressed.webp")" = "1926" ] || { echo "FAIL: udfps_icon_pressed.webp size != 1926!"; exit 1; }
+[ -f "${MNT_V}/ven/lib64/libfod_zpos_hook.so" ] || { echo "FAIL: Missing /vendor/lib64/libfod_zpos_hook.so!"; exit 1; }
+[ -f "${MNT_V}/ven/lib64/libdisplaydebug.so" ] || { echo "FAIL: Missing /vendor/lib64/libdisplaydebug.so!"; exit 1; }
+cmp -s "${MNT_V}/ven/lib64/libfod_zpos_hook.so" "${MNT_V}/ven/lib64/libdisplaydebug.so" || { echo "FAIL: /vendor/lib64/libdisplaydebug.so does not match libfod_zpos_hook.so!"; exit 1; }
+python3 - "${MNT_V}/odm/lib64/libgf_hal_G3.so" <<'GFVFY'
+import struct, sys
+b = open(sys.argv[1], "rb").read()
+assert struct.unpack_from("<I", b, 0x28AF4)[0] == 0x52800028, "libgf_hal_G3.so missing SPMT calibration fix at 0x28af4!"
+assert struct.unpack_from("<I", b, 0x28B80)[0] == 0x52800028, "libgf_hal_G3.so missing SPMT calibration fix at 0x28b80!"
+GFVFY
+grep -q "libfod_zpos_hook.so" "${MNT_V}/ven/etc/init/android.hardware.graphics.composer@2.4-service.rc" || { echo "FAIL: composer@2.4-service.rc missing LD_PRELOAD libfod_zpos_hook.so!"; exit 1; }
+grep -q "(allow hal_graphics_composer_default sysfs_oppo_display" "${MNT_V}/ven/etc/selinux/vendor_sepolicy.cil" || { echo "FAIL: vendor_sepolicy.cil missing hal_graphics_composer_default sysfs_oppo_display rule!"; exit 1; }
 DEV_FCM="${SYS_ROOT}/etc/vintf/compatibility_matrix.device.xml"
 grep -q "vendor.oplus.hardware.syshelper" "${DEV_FCM}" || { echo "FAIL: compatibility_matrix.device.xml missing vendor.oplus.hardware.syshelper (IUdfpsHelper)!"; exit 1; }
 grep -q "vendor.oplus.hardware.biometrics.fingerprint" "${DEV_FCM}" || { echo "FAIL: compatibility_matrix.device.xml missing vendor.oplus.hardware.biometrics.fingerprint!"; exit 1; }
@@ -387,6 +402,8 @@ with zipfile.ZipFile(sys.argv[2], "r") as zf:
     assert "classes4.dex" in zf.namelist(), "services.jar missing classes4.dex!"
     d4 = zf.read("classes4.dex")
     assert b"SamuraiPlatformSigBridge" in d4, "services.jar missing SamuraiPlatformSigBridge!"
+    assert b"SamuraiUdfpsOpticalOverlay" in d4, "services.jar missing SamuraiUdfpsOpticalOverlay!"
+    assert b"/system/etc/udfps_icon_pressed.webp" in d4, "services.jar missing /system/etc/udfps_icon_pressed.webp!"
     assert b"onWallpaperCommand" in d4 and b"android.wallpaper.tap" in d4, "services.jar missing onWallpaperCommand Home Screen double-tap lock bridge!"
     assert b"STOCK_NEXUS_LAUNCHER_SHA256" in d4 and bytes.fromhex("a86bdb059f28f265162d64ce6c8d9772901d227e741581d1f04a5ed132a574d0") in d4, "services.jar missing STOCK_NEXUS_LAUNCHER_SHA256 two-way cert bridge!"
 print("  [PASS] Pristine stock SystemUI.apk + two-way SamuraiPlatformSigBridge + Home Wallpaper double-tap sleep in services.jar verified!")
@@ -631,6 +648,11 @@ with zipfile.ZipFile(bridge_zip, "r") as zf:
     assert "ota_payload/fstab.qcom" in names, "Bridge OTA missing ota_payload/fstab.qcom!"
     assert "ota_payload/compatibility_matrix.device.xml" in names, "Bridge OTA missing ota_payload/compatibility_matrix.device.xml!"
     assert "ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc" in names, "Bridge OTA missing fp 2.3 rc!"
+    assert "ota_payload/android.hardware.graphics.composer@2.4-service.rc" in names, "Bridge OTA missing composer 2.4 rc!"
+    assert "ota_payload/libfod_zpos_hook.so" in names, "Bridge OTA missing libfod_zpos_hook.so!"
+    assert "ota_payload/libgf_hal_G3.so" in names, "Bridge OTA missing libgf_hal_G3.so!"
+    assert "/mnt_ven/lib64/libdisplaydebug.so" in apply_sh, "Bridge OTA apply_ota.sh missing libdisplaydebug.so install!"
+    assert "ota_payload/udfps_icon_pressed.webp" in names, "Bridge OTA missing udfps_icon_pressed.webp!"
     assert "ota_payload/vendor_sepolicy.cil" in names, "Bridge OTA missing vendor_sepolicy.cil!"
     assert "persist.vendor.fingerprint.sensor_type=optical" in apply_sh, "Bridge OTA apply_ota.sh missing Goodix optical UDFPS props!"
     inc_fstab = zf.read("ota_payload/fstab.qcom").decode("utf-8")
@@ -641,7 +663,7 @@ with zipfile.ZipFile(bridge_zip, "r") as zf:
 with zipfile.ZipFile(sys_zip, "r") as zf:
     snames = set(zf.namelist())
     assert "system.new.dat.br" in snames and "system.transfer.list" in snames, "Stable System.zip missing system.new.dat.br!"
-    assert "vendor_patch/com.qti.chi.override.so" in snames and "vendor_patch/fstab.qcom" in snames, "Stable System.zip missing vendor_patch files!"
+    assert "vendor_patch/com.qti.chi.override.so" in snames and "vendor_patch/fstab.qcom" in snames and "vendor_patch/libfod_zpos_hook.so" in snames and "vendor_patch/libgf_hal_G3.so" in snames and "vendor_patch/android.hardware.graphics.composer@2.4-service.rc" in snames, "Stable System.zip missing vendor_patch files!"
     sys_chi = zf.read("vendor_patch/com.qti.chi.override.so")
     assert len(sys_chi) == 2172832 and struct.unpack_from("<I", sys_chi, 0x5639c)[0] == 0x14027519 and struct.unpack_from("<I", sys_chi, 0xdccc4)[0] == 0x14005aff, "Stable System.zip CHI override missing 4K60 EIS3 hooks!"
     sys_fstab = zf.read("vendor_patch/fstab.qcom").decode("utf-8")
@@ -694,7 +716,7 @@ for st_path in (stable_json, root_json):
     st_e = json.load(open(st_path, encoding="utf-8"))["response"][0]
     assert (
         st_e["channel"] == "stable"
-        and st_e["version"] == "v2.1.5"
+        and st_e["version"] == "v2.1.7"
         and st_e["sha256"] == EXPECTED_STABLE_SHA
         and st_e["id"] == EXPECTED_STABLE_SHA
     ), f"Stable manifest {st_path} mismatch during ios-beta build: {st_e}"
@@ -707,7 +729,7 @@ digest = h.hexdigest()
 assert e_beta["sha256"] == digest and e_beta["id"] == digest, "SHA-256 mismatch in ota/ios-beta/rmx1931.json!"
 with zipfile.ZipFile(beta_zip, "r") as zf:
     bnames = set(zf.namelist())
-    for req_ios in ("IosStyler.apk", "IosSettings.apk", "IosControlCenter.apk", "IosDialer.apk", "IosMessages.apk", "privapp-permissions-ios-dialer.xml", "privapp-permissions-ios-messages.xml", "SamuraiLauncherOverlay.apk", "SamuraiIos26WallpaperOverlay.apk", "NexusLauncherRelease.apk", "fstab.qcom", "compatibility_matrix.device.xml", "android.hardware.biometrics.fingerprint@2.3-service.samurai.rc", "vendor_sepolicy.cil"):
+    for req_ios in ("IosStyler.apk", "IosSettings.apk", "IosControlCenter.apk", "IosDialer.apk", "IosMessages.apk", "privapp-permissions-ios-dialer.xml", "privapp-permissions-ios-messages.xml", "SamuraiLauncherOverlay.apk", "SamuraiIos26WallpaperOverlay.apk", "NexusLauncherRelease.apk", "fstab.qcom", "compatibility_matrix.device.xml", "android.hardware.biometrics.fingerprint@2.3-service.samurai.rc", "android.hardware.graphics.composer@2.4-service.rc", "libfod_zpos_hook.so", "libgf_hal_G3.so", "udfps_icon_pressed.webp", "vendor_sepolicy.cil"):
         assert f"ota_payload/{req_ios}" in bnames, f"iOS Beta OTA missing ota_payload/{req_ios}!"
     for retired_ios in ("ICall26.apk", "SamuraiICallOverlay.apk"):
         assert f"ota_payload/{retired_ios}" not in bnames, f"iOS Beta OTA still contains retired {retired_ios}!"

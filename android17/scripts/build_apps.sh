@@ -119,6 +119,37 @@ aarch64-linux-gnu-gcc -O2 -Wall -Wextra -Werror -nostdlib -static \
 aarch64-linux-gnu-strip "${OUT_BIN}/bpfloader_wrap"
 chmod 0755 "${OUT_BIN}/bpfloader_wrap"
 
+BIONIC_STUBS="${APK_BUILD}/bionic_stubs"
+mkdir -p "${BIONIC_STUBS}"
+cat << 'EOF' > "${BIONIC_STUBS}/libc_stub.c"
+void clock_gettime(void) {}
+void nanosleep(void) {}
+void open(void) {}
+void read(void) {}
+void write(void) {}
+void close(void) {}
+void pthread_mutex_lock(void) {}
+void pthread_mutex_unlock(void) {}
+void pthread_create(void) {}
+void pthread_detach(void) {}
+EOF
+cat << 'EOF' > "${BIONIC_STUBS}/libdl_stub.c"
+void dlsym(void) {}
+EOF
+clang --target=aarch64-linux-android30 -fuse-ld=lld -ffreestanding -nostdinc -fno-builtin -nostdlib -shared -fPIC \
+    -Wl,-soname,libc.so -o "${BIONIC_STUBS}/libc.so" "${BIONIC_STUBS}/libc_stub.c"
+clang --target=aarch64-linux-android30 -fuse-ld=lld -ffreestanding -nostdinc -fno-builtin -nostdlib -shared -fPIC \
+    -Wl,-soname,libdl.so -o "${BIONIC_STUBS}/libdl.so" "${BIONIC_STUBS}/libdl_stub.c"
+clang --target=aarch64-linux-android30 -fuse-ld=lld -ffreestanding -nostdinc -fno-builtin -O2 -Wall -Wextra -Werror -nostdlib -shared -fPIC \
+    -Wl,-soname,libdisplaydebug.so \
+    -o "${OUT_BIN}/libfod_zpos_hook.so" \
+    "${A17_ROOT}/vendor-patches/fod_zpos_hook.c" \
+    -L"${BIONIC_STUBS}" -lc -ldl
+llvm-strip "${OUT_BIN}/libfod_zpos_hook.so"
+chmod 0644 "${OUT_BIN}/libfod_zpos_hook.so"
+cp -f "${OUT_BIN}/libfod_zpos_hook.so" "${WORK_APKS}/libfod_zpos_hook.so"
+cp -f "${A17_ROOT}/SamuraiParts/etc/udfps_icon_pressed.webp" "${OUT_ETC}/udfps_icon_pressed.webp"
+
 echo "=== [2/7] Building samurai-mod-helper.jar & Patched services.jar (Dual-Channel Signature Bridge) ==="
 HELPER_TMP="${APK_BUILD}/SamuraiModHelper"
 mkdir -p "${HELPER_TMP}/classes" "${HELPER_TMP}/dex"

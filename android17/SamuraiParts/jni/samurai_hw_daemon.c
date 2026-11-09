@@ -378,37 +378,35 @@ static void disable_hbm_and_restore_backlight(void) {
 }
 
 /*
- * Synchronizes Samsung SOFEF03F-M 1000-nit High Brightness Mode (/sys/kernel/oppo_display/hbm)
- * and Synaptics S3706 FOD touch reporting (/proc/touchpanel/fp_enable) with Goodix G3 (GF9500)
- * optical UDFPS enrollment & unlock events (/sys/kernel/oppo_display/{dimlayer_hbm,notify_fppress}).
+ * Synchronizes Synaptics S3706 FOD touch reporting (/proc/touchpanel/fp_enable) with
+ * Goodix G3 (GF9500) optical UDFPS enrollment & unlock events
+ * (/sys/kernel/oppo_display/{dimlayer_hbm,notify_fppress}).
+ *
+ * CRITICAL: Never write 1 to /sys/kernel/oppo_display/hbm during FOD!
+ * In the RMX1931 kernel (oppo_onscreenfingerprint.c), oppo_get_panel_brightness_to_alpha()
+ * immediately returns 0 if oppo_get_oppo_hbm_mode() != 0, which zeroes out the hardware
+ * SDE dim layer alpha so the surrounding screen fails to dim and the Goodix G3 sensor
+ * saturates. Instead, sde_crtc.c + sde_connector_update_hbm drive FOD HBM and the SDE
+ * dim layer automatically via dimlayer_hbm + FOD_PRESSED_LAYER_ZORDER (0x20000000u).
  */
 static void sync_fod_illumination(void) {
     long long fppress = read_ll_file(OPPO_FPPRESS_PATH, 0);
     long long dimlayer = read_ll_file(OPPO_DIMLAYER_PATH, 0);
+    int prev_session = g_fod_session_active;
     g_fod_session_active = (dimlayer > 0 || fppress > 0) ? 1 : 0;
+    g_fod_hbm_active = (fppress > 0) ? 1 : 0;
 
     if (g_fod_session_active) {
         if (read_ll_file(OPPO_FP_ENABLE_PATH, 0) != 1) {
             write_int_file(OPPO_FP_ENABLE_PATH, 1);
         }
-    }
-
-    if (fppress > 0) {
-        if (!g_fod_hbm_active) {
-            g_fod_hbm_active = 1;
-            write_int_file(OPPO_HBM_PATH, 1);
-        } else if (read_ll_file(OPPO_HBM_PATH, 0) == 0) {
-            write_int_file(OPPO_HBM_PATH, 1);
-        }
-    } else if (g_fod_hbm_active) {
-        g_fod_hbm_active = 0;
-        if (!g_state.hbm_mode) {
+        /* Ensure manual /sys/kernel/oppo_display/hbm is 0 on FOD session start */
+        if (!prev_session) {
             write_int_file(OPPO_HBM_PATH, 0);
-            long long cur_bl = read_ll_file(PANEL_BL_PATH, -1);
-            if (cur_bl > 0) {
-                write_int_file(PANEL_BL_PATH, (int)cur_bl);
-            }
         }
+    } else if (prev_session && g_state.hbm_mode) {
+        /* Restore user-toggled Sunlight HBM after FOD session completes */
+        write_int_file(OPPO_HBM_PATH, 1);
     }
 }
 
