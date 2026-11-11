@@ -675,6 +675,82 @@ def patch_chi_eis_4k60(chi_raw: bytearray) -> bool:
     return True
 
 
+def promote_dt_needed_first(elf_path: str, target_soname: str = "libdisplaydebug.so") -> bool:
+    """
+    Idempotently rotates target_soname to DT_NEEDED[0] in an ELF64 shared library's .dynamic
+    table in-place (zero file-size or section-offset change), preserving mode/uid/gid/SELinux xattr.
+    Combined with DF_1_GLOBAL (-Wl,-z,global) on libdisplaydebug.so, guarantees Bionic linker64
+    binds SDM/DRM PLT slots to our interposer ahead of hwcomposer.qcom.so and libdrm.so.
+    """
+    assert os.path.isfile(elf_path), f"Missing ELF64 target: {elf_path}"
+    ctx = get_selinux_xattr(elf_path)
+    st = os.stat(elf_path)
+    with open(elf_path, "rb") as f:
+        raw = bytearray(f.read())
+    assert raw[:4] == b"\x7fELF" and raw[4] == 2 and raw[5] == 1, f"Not little-endian ELF64: {elf_path}"
+
+    e_phoff = struct.unpack_from("<Q", raw, 0x20)[0]
+    e_phentsize, e_phnum = struct.unpack_from("<HH", raw, 0x36)
+    pt_loads = []
+    dyn_off = None
+    dyn_sz = 0
+    for i in range(e_phnum):
+        poff = e_phoff + i * e_phentsize
+        p_type, _, p_offset, p_vaddr, _, p_filesz, _, _ = struct.unpack_from("<IIQQQQQQ", raw, poff)
+        if p_type == 1:
+            pt_loads.append((p_vaddr, p_filesz, p_offset))
+        elif p_type == 2:
+            dyn_off = p_offset
+            dyn_sz = p_filesz
+    assert dyn_off is not None and dyn_sz >= 16, f"Missing PT_DYNAMIC in {elf_path}"
+
+    def vaddr_to_off(vaddr: int) -> int:
+        for pv, pfsz, poff in pt_loads:
+            if pv <= vaddr < pv + pfsz:
+                return poff + (vaddr - pv)
+        raise AssertionError(f"Cannot map vaddr {hex(vaddr)} in {elf_path}")
+
+    strtab_vaddr = None
+    raw_needed = []
+    for off in range(dyn_off, dyn_off + dyn_sz, 16):
+        d_tag, d_val = struct.unpack_from("<qQ", raw, off)
+        if d_tag == 0:
+            break
+        if d_tag == 5:
+            strtab_vaddr = d_val
+        elif d_tag == 1:
+            raw_needed.append((off, d_val))
+    assert strtab_vaddr is not None, f"Missing DT_STRTAB in {elf_path}"
+    strtab_off = vaddr_to_off(strtab_vaddr)
+
+    needed = []
+    target_idx = None
+    for idx, (off, d_val) in enumerate(raw_needed):
+        s_start = strtab_off + d_val
+        s_end = raw.index(0, s_start)
+        soname = raw[s_start:s_end].decode("ascii", errors="replace")
+        needed.append((off, d_val, soname))
+        if soname == target_soname and target_idx is None:
+            target_idx = idx
+
+    assert target_idx is not None, (
+        f"{target_soname} not found in DT_NEEDED of {elf_path}: {[n[2] for n in needed]}"
+    )
+    if target_idx == 0:
+        return False
+
+    rotated_dvals = [needed[target_idx][1]] + [needed[k][1] for k in range(target_idx)]
+    for k, new_dval in enumerate(rotated_dvals):
+        struct.pack_into("<Q", raw, needed[k][0] + 8, new_dval)
+
+    with open(elf_path, "wb") as f:
+        f.write(raw)
+    os.chmod(elf_path, st.st_mode & 0o7777)
+    os.chown(elf_path, st.st_uid, st.st_gid)
+    set_selinux_xattr(elf_path, ctx)
+    return True
+
+
 def patch_vendor_mount(vendor_mnt: str) -> None:
     init_dir = os.path.join(vendor_mnt, "etc", "init")
     for rc_name in [
@@ -716,9 +792,17 @@ def patch_vendor_mount(vendor_mnt: str) -> None:
             os.chmod(fod_hook_dst, 0o644)
             os.chown(fod_hook_dst, 0, 0)
             set_selinux_xattr(fod_hook_dst, "u:object_r:vendor_file:s0")
-        print("[vendor-patch] Installed /vendor/lib64/libfod_zpos_hook.so & /vendor/lib64/libdisplaydebug.so (SDM/DRM FOD bridge)")
+        print("[vendor-patch] Installed /vendor/lib64/libfod_zpos_hook.so & /vendor/lib64/libdisplaydebug.so (DF_1_GLOBAL SDM/DRM FOD bridge)")
     else:
         raise FileNotFoundError(f"Missing {fod_hook_src} (run build_apps.sh first)")
+
+    for rel_elf in (
+        os.path.join("lib64", "libsdedrm.so"),
+        os.path.join("lib64", "hw", "hwcomposer.qcom.so"),
+    ):
+        elf_target = os.path.join(vendor_mnt, rel_elf)
+        if promote_dt_needed_first(elf_target, "libdisplaydebug.so"):
+            print(f"[vendor-patch] Promoted libdisplaydebug.so to DT_NEEDED[0] in /vendor/{rel_elf}")
 
     fstab_path = os.path.join(vendor_mnt, "etc", "fstab.qcom")
     if patch_file_preserving_xattr(fstab_path, patch_fstab_userdata):

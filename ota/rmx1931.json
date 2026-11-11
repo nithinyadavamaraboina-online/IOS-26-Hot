@@ -1,18 +1,18 @@
 {
   "response": [
     {
-      "datetime": 1794411249,
+      "datetime": 1794424616,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "373d005243dc8b59187b614c115280d79f80b030e4e2fab247be09a3e36a95f5",
-      "sha256": "373d005243dc8b59187b614c115280d79f80b030e4e2fab247be09a3e36a95f5",
+      "id": "794a13f78ed71d134fe373f26ce1073ecc6b7b338ff9b96228d0a8c6c3f918f6",
+      "sha256": "794a13f78ed71d134fe373f26ce1073ecc6b7b338ff9b96228d0a8c6c3f918f6",
       "romtype": "PIXELOS",
       "channel": "stable",
-      "size": 46919302,
-      "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/pixelos-stable-v2.1.9/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "v2.1.9",
-      "tag": "pixelos-stable-v2.1.9",
+      "size": 47170136,
+      "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/pixelos-stable-v2.1.10/RMX1931-Android17-PixelOS-OTA.zip",
+      "version": "v2.1.10",
+      "tag": "pixelos-stable-v2.1.10",
       "device": "RMX1931",
-      "changelog": "What's New in Pixel OS v2.1.9:\n\u2022 Fixed In-Display Fingerprint: Pressing the fingerprint sensor during setup and on the lock screen now lights up properly and registers your finger right away.\n\u2022 Fixed Dual SIM: Both SIM cards now work together reliably for calls, SMS, and mobile data.\n\u2022 Fixed Calls, SMS & OTPs: Sending text messages, receiving bank/login OTPs, and making HD voice calls (including on Jio 4G/5G) now work properly.\n\u2022 Fixed Phone App Warning: Removed the \"This device isn't supported\" warning banner when opening the Phone app after a restart.\n\u2022 Fixed PhonePe & Banking Apps: Stopped PhonePe and other UPI/banking apps from randomly closing or crashing when you open or switch back to them.\n\u2022 Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away."
+      "changelog": "What's New in Pixel OS v2.1.10:\n\u2022 Fixed In-Display Fingerprint: Pressing the fingerprint sensor during setup and on the lock screen now lights up properly and registers your finger right away.\n\u2022 Fixed Dual SIM: Both SIM cards now work together reliably for calls, SMS, and mobile data.\n\u2022 Fixed Calls, SMS & OTPs: Sending text messages, receiving bank/login OTPs, and making HD voice calls (including on Jio 4G/5G) now work properly.\n\u2022 Fixed Phone App Warning: Removed the \"This device isn't supported\" warning banner when opening the Phone app after a restart.\n\u2022 Fixed PhonePe & Banking Apps: Stopped PhonePe and other UPI/banking apps from randomly closing or crashing when you open or switch back to them.\n\u2022 Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away."
     }
   ]
 }

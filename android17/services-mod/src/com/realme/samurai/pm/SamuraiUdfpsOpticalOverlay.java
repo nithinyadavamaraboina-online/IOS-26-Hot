@@ -133,6 +133,7 @@ public final class SamuraiUdfpsOpticalOverlay {
     }
 
     public static void onSessionStart() {
+        Log.i(TAG, "onSessionStart: prewarming 172x172 overlay");
         sSessionActive = true;
         writeSysfsSafe(FP_ENABLE_PATH, "1");
         Handler h = ensureMainHandler();
@@ -147,6 +148,7 @@ public final class SamuraiUdfpsOpticalOverlay {
     }
 
     public static void onFingerDown(int x, int y, float minor, float major) {
+        Log.i(TAG, "onFingerDown: (" + x + "," + y + ") minor=" + minor + " major=" + major + " -> 204x204 lightspot");
         sSessionActive = true;
         sPressed = true;
         writeSysfsSafe(FP_ENABLE_PATH, "1");
@@ -203,6 +205,7 @@ public final class SamuraiUdfpsOpticalOverlay {
     }
 
     public static void onFingerUp() {
+        Log.i(TAG, "onFingerUp -> 172x172 prewarm");
         sPressed = false;
         writeSysfsSafe(NOTIFY_FPPRESS_PATH, "0");
         Handler h = ensureMainHandler();
@@ -221,6 +224,7 @@ public final class SamuraiUdfpsOpticalOverlay {
         // Keep lightspot steady on GOOD (0), VENDOR (6), and START (7); release on terminal
         // per-tap retry hints PARTIAL..TOO_FAST (1..5) so the next press gets a fresh UI_READY.
         if (acquiredInfo >= 1 && acquiredInfo <= 5) {
+            Log.i(TAG, "onAcquired(" + acquiredInfo + "," + vendorCode + ") -> releasing 204x204 lightspot");
             sPressed = false;
             writeSysfsSafe(NOTIFY_FPPRESS_PATH, "0");
             Handler h = ensureMainHandler();
@@ -237,6 +241,7 @@ public final class SamuraiUdfpsOpticalOverlay {
     }
 
     public static void onEnrollResult(final int remaining) {
+        Log.i(TAG, "onEnrollResult: remaining=" + remaining);
         sPressed = false;
         if (remaining <= 0) {
             sSessionActive = false;
@@ -255,6 +260,7 @@ public final class SamuraiUdfpsOpticalOverlay {
     }
 
     public static void onAuthenticated(final int fingerId) {
+        Log.i(TAG, "onAuthenticated: fingerId=" + fingerId);
         sPressed = false;
         if (fingerId != 0) {
             sSessionActive = false;
@@ -277,6 +283,7 @@ public final class SamuraiUdfpsOpticalOverlay {
     }
 
     public static void onSessionEnd() {
+        Log.i(TAG, "onSessionEnd -> hiding overlay");
         sPressed = false;
         sSessionActive = false;
         writeSysfsSafe(NOTIFY_FPPRESS_PATH, "0");
@@ -319,6 +326,7 @@ public final class SamuraiUdfpsOpticalOverlay {
                     if (sViewAdded && sView.getVisibility() != View.GONE) {
                         sView.setVisibility(View.GONE);
                         sView.invalidate();
+                        Log.i(TAG, "onOverlayHidden: window visibility=GONE");
                     }
                     return;
                 }
@@ -335,6 +343,8 @@ public final class SamuraiUdfpsOpticalOverlay {
                     sLastAppliedX = sLayoutParams.x;
                     sLastAppliedY = sLayoutParams.y;
                     sLastAppliedSize = boxSize;
+                    Log.i(TAG, "onOverlayShown: added pressed=" + pressed
+                            + " rect=(" + sLayoutParams.x + "," + sLayoutParams.y + " " + boxSize + "x" + boxSize + ")");
                 } else {
                     boolean wasHidden = (sView.getVisibility() != View.VISIBLE);
                     if (wasHidden) {
@@ -348,6 +358,9 @@ public final class SamuraiUdfpsOpticalOverlay {
                         sLastAppliedX = sLayoutParams.x;
                         sLastAppliedY = sLayoutParams.y;
                         sLastAppliedSize = boxSize;
+                        Log.i(TAG, (wasHidden ? "onOverlayShown: " : "onOverlaySync: ")
+                                + "pressed=" + pressed
+                                + " rect=(" + sLayoutParams.x + "," + sLayoutParams.y + " " + boxSize + "x" + boxSize + ")");
                     }
                 }
                 sView.invalidate();

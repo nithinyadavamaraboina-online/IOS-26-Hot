@@ -2,7 +2,10 @@
  * Realme X2 Pro (RMX1931 / samurai) SDM/DRM Optical UDFPS Display Bridge
  *
  * Pure freestanding Android Bionic LP64 (aarch64-linux-android) library for
- * Android 17 ROM rebuilds.
+ * Android 17 ROM rebuilds. Built with -Wl,-soname,libdisplaydebug.so -Wl,-z,global -Wl,-z,now
+ * so Bionic linker64 places our SDM & DRM interposers into the process global group ahead of
+ * RTLD_LOCAL hwcomposer.qcom.so and libsdedrm.so without relying on LD_PRELOAD (which kernel
+ * AT_SECURE=1 strips on SELinux domain transitions without noatsecure).
  *
  * Strictly promotes ONLY the 204x204 (200..208px) calibrated warm-amber lightspot
  * plane at sensor center (540, 2156) to FOD_PRESSED_LAYER_ZORDER (0x20000000ULL),
@@ -27,11 +30,55 @@ typedef long               pthread_t;
 #define NULL ((void *)0)
 
 /* Android Bionic LP64 constants */
-#define RTLD_NEXT          ((void *)(-1L))
 #define O_RDONLY           00000000
 #define O_WRONLY           00000001
 #define O_CLOEXEC          02000000
-#define CLOCK_MONOTONIC    1
+#define ANDROID_LOG_INFO   4
+#define LOG_TAG            "FodZposHook"
+
+/* ELF64 & dl_iterate_phdr ABI structures (LP64 aarch64) */
+#define PT_LOAD            1U
+#define PT_DYNAMIC         2U
+#define PF_X               1U
+#define DT_NULL            0L
+#define DT_HASH            4L
+#define DT_STRTAB          5L
+#define DT_SYMTAB          6L
+#define DT_STRSZ           10L
+#define DT_GNU_HASH        0x6ffffef5L
+#define DT_VERSYM          0x6ffffff0L
+
+typedef struct {
+    uint32_t p_type;
+    uint32_t p_flags;
+    uint64_t p_offset;
+    uint64_t p_vaddr;
+    uint64_t p_paddr;
+    uint64_t p_filesz;
+    uint64_t p_memsz;
+    uint64_t p_align;
+} Elf64_Phdr;
+
+typedef struct {
+    int64_t  d_tag;
+    uint64_t d_val;
+} Elf64_Dyn;
+
+typedef struct {
+    uint32_t st_name;
+    uint8_t  st_info;
+    uint8_t  st_other;
+    uint16_t st_shndx;
+    uint64_t st_value;
+    uint64_t st_size;
+} Elf64_Sym;
+
+struct dl_phdr_info {
+    uint64_t          dlpi_addr;
+    const char       *dlpi_name;
+    const Elf64_Phdr *dlpi_phdr;
+    uint16_t          dlpi_phnum;
+};
 
 struct timespec {
     long tv_sec;
@@ -43,17 +90,21 @@ typedef struct {
     uint64_t __private[8];
 } bionic_mutex_t;
 
-/* External Bionic libc.so & libdl.so functions */
-extern void *dlsym(void *handle, const char *symbol);
+/* External Bionic libc.so, libdl.so & liblog.so functions */
+extern int dl_iterate_phdr(int (*callback)(struct dl_phdr_info *info, size_t size, void *data), void *data);
 extern int open(const char *pathname, int flags, ...);
 extern ssize_t read(int fd, void *buf, size_t count);
 extern ssize_t write(int fd, const void *buf, size_t count);
 extern int close(int fd);
 extern int nanosleep(const struct timespec *req, struct timespec *rem);
+extern int getpid(void);
 extern int pthread_mutex_lock(bionic_mutex_t *mutex);
 extern int pthread_mutex_unlock(bionic_mutex_t *mutex);
 extern int pthread_create(pthread_t *thread, const void *attr, void *(*start_routine)(void *), void *arg);
 extern int pthread_detach(pthread_t thread);
+extern int __android_log_print(int prio, const char *tag, const char *fmt, ...);
+
+#define ALOGI(fmt, ...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, fmt, ##__VA_ARGS__)
 
 #define FOD_PRESSED_BIT           0x20000000ULL
 #define DRM_MODE_OBJECT_PLANE     0xeeeeeeeeU
@@ -64,6 +115,20 @@ extern int pthread_detach(pthread_t thread);
 #define OPPO_DIMLAYER_HBM_PATH    "/sys/kernel/oppo_display/dimlayer_hbm"
 #define OPPO_NOTIFY_FPPRESS_PATH  "/sys/kernel/oppo_display/notify_fppress"
 #define OPPO_FP_STATE_PATH        "/sys/kernel/oppo_display/fp_state"
+
+/* Verified fallback symbol offsets in RMX1931 stock vendor ELF64 binaries */
+#define OFF_HWC_REGISTER          0x53290ULL
+#define OFF_HWC_CAN_SKIP_VALIDATE 0x438e0ULL
+#define OFF_HWC_BUILD_LAYER_STACK 0x3daa0ULL
+
+#define OFF_DRM_GET_PROP          0x14080ULL
+#define OFF_DRM_FREE_PROP         0x14370ULL
+#define OFF_DRM_GET_PLANE_RES     0x14ee0ULL
+#define OFF_DRM_FREE_PLANE_RES    0x150b0ULL
+#define OFF_DRM_OBJ_GET_PROPS     0x15100ULL
+#define OFF_DRM_OBJ_FREE_PROPS    0x15390ULL
+#define OFF_DRM_ATOMIC_ADD_PROP   0x15620ULL
+#define OFF_DRM_ATOMIC_COMMIT     0x15780ULL
 
 /* Provide display::DebugHandler symbols for SDM display composer compatibility */
 static void _samurai_dbg_noop(void) {}
@@ -189,12 +254,22 @@ static pfn_HWCCallbacks_Register real_HWCCallbacks_Register = NULL;
 static pfn_HWCDisplay_BuildLayerStack real_HWCDisplay_BuildLayerStack = NULL;
 static pfn_HWCDisplay_CanSkipValidate real_HWCDisplay_CanSkipValidate = NULL;
 
+static int g_sdm_logged = 0;
+static int g_drm_logged = 0;
 static void *g_refresh_cb_data = NULL;
 static pfn_HWC2_Refresh g_refresh_cb_fn = NULL;
 static int g_watcher_started = 0;
 static volatile int g_fod_force_validate_frames = 0;
 static volatile int g_lightspot_committed = 0;
+static volatile int g_cached_dimlayer = 0;
+static volatile int g_cached_fp_touch = 0;
+static uint32_t g_skip_poll_div = 0;
 static int g_prev_had_fod_layer = 0;
+
+__attribute__((constructor))
+static void fod_zpos_hook_init(void) {
+    ALOGI("loaded in pid=%d (DF_1_GLOBAL SDM/DRM optical UDFPS bridge active)", getpid());
+}
 
 static int str_eq(const char *a, const char *b) {
     while (*a && *b) {
@@ -205,6 +280,173 @@ static int str_eq(const char *a, const char *b) {
         b++;
     }
     return (*a == '\0' && *b == '\0');
+}
+
+static int path_has_basename(const char *path, const char *expected_base) {
+    if (!path || !expected_base) {
+        return 0;
+    }
+    const char *base = path;
+    for (const char *p = path; *p != '\0'; p++) {
+        if (*p == '/') {
+            base = p + 1;
+        }
+    }
+    return str_eq(base, expected_base);
+}
+
+/*
+ * Resolves a symbol directly from a specific loaded ELF64 shared object's PT_DYNAMIC
+ * (.dynsym / .dynstr) table via dl_iterate_phdr, completely bypassing dlsym(RTLD_NEXT)
+ * so DF_1_GLOBAL <-> RTLD_LOCAL linker group boundaries can never return NULL or self-recurse.
+ */
+typedef struct {
+    const char *target_soname;
+    const char *sym_name;
+    uint64_t    fallback_off;
+    const void *self_fn;
+    void       *resolved;
+} dso_sym_query_t;
+
+static int phdr_sym_cb(struct dl_phdr_info *info, size_t size, void *data) {
+    (void)size;
+    dso_sym_query_t *q = (dso_sym_query_t *)data;
+    if (!info || !path_has_basename(info->dlpi_name, q->target_soname)) {
+        return 0;
+    }
+
+    uint64_t base = info->dlpi_addr;
+    const Elf64_Dyn *dyn = NULL;
+    for (uint16_t i = 0; i < info->dlpi_phnum; i++) {
+        if (info->dlpi_phdr[i].p_type == PT_DYNAMIC) {
+            dyn = (const Elf64_Dyn *)(base + info->dlpi_phdr[i].p_vaddr);
+            break;
+        }
+    }
+
+    if (dyn != NULL) {
+        uint64_t symtab_v = 0;
+        uint64_t strtab_v = 0;
+        uint64_t strsz = 0;
+        uint64_t hash_v = 0;
+        uint64_t versym_v = 0;
+        uint64_t gnuhash_v = 0;
+
+        for (const Elf64_Dyn *d = dyn; d->d_tag != DT_NULL; d++) {
+            if (d->d_tag == DT_SYMTAB) {
+                symtab_v = d->d_val;
+            } else if (d->d_tag == DT_STRTAB) {
+                strtab_v = d->d_val;
+            } else if (d->d_tag == DT_STRSZ) {
+                strsz = d->d_val;
+            } else if (d->d_tag == DT_HASH) {
+                hash_v = d->d_val;
+            } else if (d->d_tag == DT_VERSYM) {
+                versym_v = d->d_val;
+            } else if (d->d_tag == DT_GNU_HASH) {
+                gnuhash_v = d->d_val;
+            }
+        }
+
+        if (symtab_v != 0 && strtab_v != 0 && strsz != 0) {
+            uint64_t symtab_addr = (symtab_v < base) ? (base + symtab_v) : symtab_v;
+            uint64_t strtab_addr = (strtab_v < base) ? (base + strtab_v) : strtab_v;
+            size_t nsyms = 0;
+
+            if (hash_v != 0) {
+                uint64_t hash_addr = (hash_v < base) ? (base + hash_v) : hash_v;
+                nsyms = (size_t)(((const uint32_t *)hash_addr)[1]);
+            }
+            if (nsyms == 0 && versym_v != 0) {
+                uint64_t versym_addr = (versym_v < base) ? (base + versym_v) : versym_v;
+                if (versym_addr > symtab_addr) {
+                    nsyms = (size_t)((versym_addr - symtab_addr) / sizeof(Elf64_Sym));
+                }
+            }
+            if (nsyms == 0 && gnuhash_v != 0) {
+                uint64_t gh_addr = (gnuhash_v < base) ? (base + gnuhash_v) : gnuhash_v;
+                const uint32_t *gh = (const uint32_t *)gh_addr;
+                uint32_t nbuckets = gh[0];
+                uint32_t symoffset = gh[1];
+                uint32_t bloom_size = gh[2];
+                if (nbuckets > 0 && nbuckets <= 32768U && bloom_size <= 32768U) {
+                    const uint64_t *bloom = (const uint64_t *)(gh + 4);
+                    const uint32_t *buckets = (const uint32_t *)(bloom + bloom_size);
+                    const uint32_t *chains = buckets + nbuckets;
+                    uint32_t max_sym = 0;
+                    for (uint32_t b = 0; b < nbuckets; b++) {
+                        if (buckets[b] > max_sym) {
+                            max_sym = buckets[b];
+                        }
+                    }
+                    if (max_sym >= symoffset && max_sym < 32768U) {
+                        while (max_sym < 32768U && (chains[max_sym - symoffset] & 1U) == 0U) {
+                            max_sym++;
+                        }
+                        nsyms = (size_t)(max_sym + 1U);
+                    }
+                }
+                if (nsyms == 0 && gh_addr > symtab_addr) {
+                    nsyms = (size_t)((gh_addr - symtab_addr) / sizeof(Elf64_Sym));
+                }
+            }
+            if (nsyms == 0 && strtab_addr > symtab_addr) {
+                nsyms = (size_t)((strtab_addr - symtab_addr) / sizeof(Elf64_Sym));
+            }
+
+            if (nsyms > 32768U) {
+                nsyms = 32768U;
+            }
+
+            const Elf64_Sym *syms = (const Elf64_Sym *)symtab_addr;
+            const char *strs = (const char *)strtab_addr;
+            for (size_t i = 1; i < nsyms; i++) {
+                if (syms[i].st_shndx != 0 && syms[i].st_value != 0 && syms[i].st_name < strsz) {
+                    if (str_eq(strs + syms[i].st_name, q->sym_name)) {
+                        void *cand = (void *)(base + syms[i].st_value);
+                        if (cand != q->self_fn) {
+                            q->resolved = cand;
+                            return 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (q->fallback_off != 0 && base != 0) {
+        int in_exec_seg = 0;
+        for (uint16_t i = 0; i < info->dlpi_phnum; i++) {
+            const Elf64_Phdr *ph = &info->dlpi_phdr[i];
+            if (ph->p_type == PT_LOAD && (ph->p_flags & PF_X) != 0U) {
+                if (q->fallback_off >= ph->p_vaddr &&
+                    q->fallback_off < (ph->p_vaddr + ph->p_memsz)) {
+                    in_exec_seg = 1;
+                    break;
+                }
+            }
+        }
+        if (in_exec_seg) {
+            void *cand = (void *)(base + q->fallback_off);
+            if (cand != q->self_fn) {
+                q->resolved = cand;
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+static void *resolve_dso_symbol(
+        const char *target_soname, const char *sym_name, uint64_t fallback_off, const void *self_fn) {
+    dso_sym_query_t q;
+    q.target_soname = target_soname;
+    q.sym_name = sym_name;
+    q.fallback_off = fallback_off;
+    q.self_fn = self_fn;
+    q.resolved = NULL;
+    dl_iterate_phdr(phdr_sym_cb, &q);
+    return q.resolved;
 }
 
 static void zero_mem(void *ptr, size_t n) {
@@ -341,30 +583,90 @@ static int is_lightspot_204_float(float left, float top, float right, float bott
     return is_fod_sensor_xy(x, y);
 }
 
+/* Forward declarations of our exported hooks for self-recursion guard */
+int32_t _ZN3sdm12HWCCallbacks8RegisterEN4HWC28CallbackEPvPFvvE(
+        void *this_ptr, int32_t descriptor, void *callback_data, void (*pointer)(void));
+int32_t _ZN3sdm10HWCDisplay15CanSkipValidateEv(void *this_ptr);
+int32_t _ZN3sdm10HWCDisplay15BuildLayerStackEv(void *this_ptr);
+int drmModeAtomicAddProperty(
+        drmModeAtomicReqPtr req, uint32_t object_id, uint32_t property_id, uint64_t value);
+int drmModeAtomicCommit(int fd, drmModeAtomicReqPtr req, uint32_t flags, void *user_data);
+
+static void resolve_sdm_symbols_locked(void) {
+    if (!real_HWCCallbacks_Register) {
+        real_HWCCallbacks_Register = (pfn_HWCCallbacks_Register)resolve_dso_symbol(
+                "hwcomposer.qcom.so",
+                "_ZN3sdm12HWCCallbacks8RegisterEN4HWC28CallbackEPvPFvvE",
+                OFF_HWC_REGISTER,
+                (const void *)_ZN3sdm12HWCCallbacks8RegisterEN4HWC28CallbackEPvPFvvE);
+    }
+    if (!real_HWCDisplay_CanSkipValidate) {
+        real_HWCDisplay_CanSkipValidate = (pfn_HWCDisplay_CanSkipValidate)resolve_dso_symbol(
+                "hwcomposer.qcom.so",
+                "_ZN3sdm10HWCDisplay15CanSkipValidateEv",
+                OFF_HWC_CAN_SKIP_VALIDATE,
+                (const void *)_ZN3sdm10HWCDisplay15CanSkipValidateEv);
+    }
+    if (!real_HWCDisplay_BuildLayerStack) {
+        real_HWCDisplay_BuildLayerStack = (pfn_HWCDisplay_BuildLayerStack)resolve_dso_symbol(
+                "hwcomposer.qcom.so",
+                "_ZN3sdm10HWCDisplay15BuildLayerStackEv",
+                OFF_HWC_BUILD_LAYER_STACK,
+                (const void *)_ZN3sdm10HWCDisplay15BuildLayerStackEv);
+    }
+    if (!g_sdm_logged && real_HWCDisplay_BuildLayerStack && real_HWCDisplay_CanSkipValidate) {
+        g_sdm_logged = 1;
+        ALOGI("resolved hwcomposer.qcom.so SDM symbols: Register=%p CanSkipValidate=%p BuildLayerStack=%p",
+              (void *)real_HWCCallbacks_Register,
+              (void *)real_HWCDisplay_CanSkipValidate,
+              (void *)real_HWCDisplay_BuildLayerStack);
+    }
+}
+
 static void resolve_drm_symbols_locked(void) {
     if (!real_drmModeAtomicAddProperty) {
-        real_drmModeAtomicAddProperty = (pfn_drmModeAtomicAddProperty)dlsym(RTLD_NEXT, "drmModeAtomicAddProperty");
+        real_drmModeAtomicAddProperty = (pfn_drmModeAtomicAddProperty)resolve_dso_symbol(
+                "libdrm.so",
+                "drmModeAtomicAddProperty",
+                OFF_DRM_ATOMIC_ADD_PROP,
+                (const void *)drmModeAtomicAddProperty);
     }
     if (!real_drmModeAtomicCommit) {
-        real_drmModeAtomicCommit = (pfn_drmModeAtomicCommit)dlsym(RTLD_NEXT, "drmModeAtomicCommit");
+        real_drmModeAtomicCommit = (pfn_drmModeAtomicCommit)resolve_dso_symbol(
+                "libdrm.so",
+                "drmModeAtomicCommit",
+                OFF_DRM_ATOMIC_COMMIT,
+                (const void *)drmModeAtomicCommit);
     }
     if (!real_drmModeGetPlaneResources) {
-        real_drmModeGetPlaneResources = (pfn_drmModeGetPlaneResources)dlsym(RTLD_NEXT, "drmModeGetPlaneResources");
+        real_drmModeGetPlaneResources = (pfn_drmModeGetPlaneResources)resolve_dso_symbol(
+                "libdrm.so", "drmModeGetPlaneResources", OFF_DRM_GET_PLANE_RES, NULL);
     }
     if (!real_drmModeFreePlaneResources) {
-        real_drmModeFreePlaneResources = (pfn_drmModeFreePlaneResources)dlsym(RTLD_NEXT, "drmModeFreePlaneResources");
+        real_drmModeFreePlaneResources = (pfn_drmModeFreePlaneResources)resolve_dso_symbol(
+                "libdrm.so", "drmModeFreePlaneResources", OFF_DRM_FREE_PLANE_RES, NULL);
     }
     if (!real_drmModeObjectGetProperties) {
-        real_drmModeObjectGetProperties = (pfn_drmModeObjectGetProperties)dlsym(RTLD_NEXT, "drmModeObjectGetProperties");
+        real_drmModeObjectGetProperties = (pfn_drmModeObjectGetProperties)resolve_dso_symbol(
+                "libdrm.so", "drmModeObjectGetProperties", OFF_DRM_OBJ_GET_PROPS, NULL);
     }
     if (!real_drmModeFreeObjectProperties) {
-        real_drmModeFreeObjectProperties = (pfn_drmModeFreeObjectProperties)dlsym(RTLD_NEXT, "drmModeFreeObjectProperties");
+        real_drmModeFreeObjectProperties = (pfn_drmModeFreeObjectProperties)resolve_dso_symbol(
+                "libdrm.so", "drmModeFreeObjectProperties", OFF_DRM_OBJ_FREE_PROPS, NULL);
     }
     if (!real_drmModeGetProperty) {
-        real_drmModeGetProperty = (pfn_drmModeGetProperty)dlsym(RTLD_NEXT, "drmModeGetProperty");
+        real_drmModeGetProperty = (pfn_drmModeGetProperty)resolve_dso_symbol(
+                "libdrm.so", "drmModeGetProperty", OFF_DRM_GET_PROP, NULL);
     }
     if (!real_drmModeFreeProperty) {
-        real_drmModeFreeProperty = (pfn_drmModeFreeProperty)dlsym(RTLD_NEXT, "drmModeFreeProperty");
+        real_drmModeFreeProperty = (pfn_drmModeFreeProperty)resolve_dso_symbol(
+                "libdrm.so", "drmModeFreeProperty", OFF_DRM_FREE_PROP, NULL);
+    }
+    if (!g_drm_logged && real_drmModeAtomicAddProperty && real_drmModeAtomicCommit) {
+        g_drm_logged = 1;
+        ALOGI("resolved libdrm.so symbols: AtomicAddProperty=%p AtomicCommit=%p",
+              (void *)real_drmModeAtomicAddProperty,
+              (void *)real_drmModeAtomicCommit);
     }
 }
 
@@ -444,6 +746,7 @@ static void init_drm_planes_locked(int fd) {
     real_drmModeFreePlaneResources(pres);
     if (g_num_planes > 0) {
         g_planes_initialized = 1;
+        ALOGI("init_drm_planes: tracked=%d primary_crtc=%u", g_num_planes, g_primary_crtc_id);
     }
 }
 
@@ -470,6 +773,8 @@ static void *fod_watcher_thread(void *arg) {
     for (;;) {
         int dimlayer = read_sysfs_int(OPPO_DIMLAYER_HBM_PATH);
         int fp_touch = read_fp_touch_state();
+        g_cached_dimlayer = dimlayer;
+        g_cached_fp_touch = fp_touch;
 
         if (dimlayer != last_dimlayer || fp_touch != last_fp_touch) {
             last_dimlayer = dimlayer;
@@ -478,6 +783,7 @@ static void *fod_watcher_thread(void *arg) {
             g_fod_force_validate_frames = 6;
             pthread_mutex_unlock(&g_lock);
             followup_refreshes = 3;
+            ALOGI("watcher edge: dimlayer_hbm=%d fp_touch=%d -> HWC refresh", dimlayer, fp_touch);
             trigger_hwc_refresh();
         } else if (followup_refreshes > 0) {
             followup_refreshes--;
@@ -487,7 +793,7 @@ static void *fod_watcher_thread(void *arg) {
         if (dimlayer || fp_touch || followup_refreshes > 0) {
             sleep_ms(16);
         } else {
-            sleep_ms(150);
+            sleep_ms(120);
         }
     }
     return NULL;
@@ -507,15 +813,14 @@ __attribute__((visibility("default")))
 int32_t _ZN3sdm12HWCCallbacks8RegisterEN4HWC28CallbackEPvPFvvE(
         void *this_ptr, int32_t descriptor, void *callback_data, void (*pointer)(void)) {
     pthread_mutex_lock(&g_lock);
-    if (!real_HWCCallbacks_Register) {
-        real_HWCCallbacks_Register = (pfn_HWCCallbacks_Register)dlsym(
-                RTLD_NEXT, "_ZN3sdm12HWCCallbacks8RegisterEN4HWC28CallbackEPvPFvvE");
-    }
+    resolve_sdm_symbols_locked();
     /* HWC2::Callback::Refresh == 2 */
     if (descriptor == 2 && pointer != NULL) {
         g_refresh_cb_data = callback_data;
         g_refresh_cb_fn = (pfn_HWC2_Refresh)pointer;
         ensure_watcher_started_locked();
+        ALOGI("HWCCallbacks::Register captured Refresh callback=%p data=%p",
+              (void *)pointer, callback_data);
     }
     pfn_HWCCallbacks_Register fn = real_HWCCallbacks_Register;
     pthread_mutex_unlock(&g_lock);
@@ -534,19 +839,29 @@ int32_t _ZN3sdm12HWCCallbacks8RegisterEN4HWC28CallbackEPvPFvvE(
 __attribute__((visibility("default")))
 int32_t _ZN3sdm10HWCDisplay15CanSkipValidateEv(void *this_ptr) {
     pthread_mutex_lock(&g_lock);
-    if (!real_HWCDisplay_CanSkipValidate) {
-        real_HWCDisplay_CanSkipValidate = (pfn_HWCDisplay_CanSkipValidate)dlsym(
-                RTLD_NEXT, "_ZN3sdm10HWCDisplay15CanSkipValidateEv");
-    }
+    resolve_sdm_symbols_locked();
     pfn_HWCDisplay_CanSkipValidate fn = real_HWCDisplay_CanSkipValidate;
-    int force_validate = (g_fod_force_validate_frames > 0 || g_lightspot_committed != 0);
+    int force_validate = (g_fod_force_validate_frames > 0 ||
+                          g_lightspot_committed != 0 ||
+                          g_prev_had_fod_layer != 0 ||
+                          g_cached_dimlayer != 0 ||
+                          g_cached_fp_touch != 0);
     if (g_fod_force_validate_frames > 0) {
         g_fod_force_validate_frames--;
     }
+    uint32_t poll_tick = ++g_skip_poll_div;
     pthread_mutex_unlock(&g_lock);
 
-    if (force_validate || read_fp_touch_state() != 0 || read_sysfs_int(OPPO_DIMLAYER_HBM_PATH) != 0) {
+    if (force_validate) {
         return 0;
+    }
+    if ((poll_tick & 15U) == 0U) {
+        int dim = read_sysfs_int(OPPO_DIMLAYER_HBM_PATH);
+        g_cached_dimlayer = dim;
+        if (dim != 0 || read_fp_touch_state() != 0) {
+            g_cached_fp_touch = 1;
+            return 0;
+        }
     }
     if (fn) {
         return fn(this_ptr);
@@ -557,22 +872,25 @@ int32_t _ZN3sdm10HWCDisplay15CanSkipValidateEv(void *this_ptr) {
 /*
  * Intercepts sdm::HWCDisplay::BuildLayerStack() in hwcomposer.qcom.so.
  *
- * Marks ONLY the 204x204 (200..208px) warm-amber optical lightspot layer at sensor
- * coordinates with hwc_layer[0x82] = 1 and geometry_changes |= 0x080U so SDM allocates
- * a dedicated SDE hardware overlay plane instead of GPU-compositing it, while leaving
- * all 190x190 transparent SystemUI/Settings UI layers untouched.
+ * Verified RMX1931 hwcomposer.qcom.so offsets:
+ *   - HWCLayer::SetLayerDisplayFrame (0x51600) stores float display_frame_[4] ({left, top,
+ *     right, bottom}) at hwc_layer + 0x64..0x70.
+ *   - HWCLayer::ResetPerFrameData (0x51650, called inside BuildLayerStack at 0x3dbb4) copies
+ *     hwc_layer + 0x64..0x70 into sdm_layer + 0xBA4..0xBB0 (sdm_layer + 0xB94..0xBA0 is src_rect).
+ *   - Reading hwc_layer + 0x64..0x70 before real_HWCDisplay_BuildLayerStack sees the new 204x204
+ *     (438, 2054)-(642, 2258) geometry immediately on frame 0 of onFingerDown, setting
+ *     hwc_layer[0x82] = 1 so BuildLayerStack (0x3dc18) sets sdm_layer->flags = 0x80000000 and
+ *     HWDeviceDRM::SetupAtomic (0x63470) assigns a dedicated SDE hardware overlay plane.
  */
 __attribute__((visibility("default")))
 int32_t _ZN3sdm10HWCDisplay15BuildLayerStackEv(void *this_ptr) {
     pthread_mutex_lock(&g_lock);
-    if (!real_HWCDisplay_BuildLayerStack) {
-        real_HWCDisplay_BuildLayerStack = (pfn_HWCDisplay_BuildLayerStack)dlsym(
-                RTLD_NEXT, "_ZN3sdm10HWCDisplay15BuildLayerStackEv");
-    }
+    resolve_sdm_symbols_locked();
     pfn_HWCDisplay_BuildLayerStack fn = real_HWCDisplay_BuildLayerStack;
     pthread_mutex_unlock(&g_lock);
 
     int found_fod_layer = 0;
+    int32_t matched_l = 0, matched_t = 0, matched_r = 0, matched_b = 0, matched_comp = 0;
 
     if (this_ptr != NULL) {
         uint8_t *disp = (uint8_t *)this_ptr;
@@ -583,19 +901,29 @@ int32_t _ZN3sdm10HWCDisplay15BuildLayerStackEv(void *this_ptr) {
             guard++;
             uint8_t *hwc_layer = *(uint8_t **)(node + 0x20);
             if (hwc_layer != NULL) {
-                uint8_t *sdm_layer = *(uint8_t **)hwc_layer;
-                int is_fod_rect = 0;
-                if (sdm_layer != NULL) {
-                    float left   = *(float *)(sdm_layer + 0xB9C);
-                    float top    = *(float *)(sdm_layer + 0xBA0);
-                    float right  = *(float *)(sdm_layer + 0xBA4);
-                    float bottom = *(float *)(sdm_layer + 0xBA8);
-                    is_fod_rect = is_lightspot_204_float(left, top, right, bottom);
+                float left   = *(float *)(hwc_layer + 0x64);
+                float top    = *(float *)(hwc_layer + 0x68);
+                float right  = *(float *)(hwc_layer + 0x6C);
+                float bottom = *(float *)(hwc_layer + 0x70);
+                if (right <= left || bottom <= top) {
+                    uint8_t *sdm_layer = *(uint8_t **)hwc_layer;
+                    if (sdm_layer != NULL) {
+                        left   = *(float *)(sdm_layer + 0xBA4);
+                        top    = *(float *)(sdm_layer + 0xBA8);
+                        right  = *(float *)(sdm_layer + 0xBAC);
+                        bottom = *(float *)(sdm_layer + 0xBB0);
+                    }
                 }
+                int is_fod_rect = is_lightspot_204_float(left, top, right, bottom);
                 uint8_t prev_flag = hwc_layer[0x82];
                 uint8_t new_flag = is_fod_rect ? 1 : 0;
                 if (is_fod_rect) {
                     found_fod_layer = 1;
+                    matched_l = (int32_t)(left + 0.5f);
+                    matched_t = (int32_t)(top + 0.5f);
+                    matched_r = (int32_t)(right + 0.5f);
+                    matched_b = (int32_t)(bottom + 0.5f);
+                    matched_comp = *(int32_t *)(hwc_layer + 0x88);
                 }
                 if (prev_flag != new_flag) {
                     hwc_layer[0x82] = new_flag;
@@ -627,12 +955,23 @@ int32_t _ZN3sdm10HWCDisplay15BuildLayerStackEv(void *this_ptr) {
         }
     }
 
+    int log_edge = 0;
     pthread_mutex_lock(&g_lock);
+    if (found_fod_layer != g_prev_had_fod_layer) {
+        log_edge = found_fod_layer ? 1 : -1;
+    }
     if (found_fod_layer || g_prev_had_fod_layer) {
         g_fod_force_validate_frames = 6;
     }
     g_prev_had_fod_layer = found_fod_layer;
     pthread_mutex_unlock(&g_lock);
+
+    if (log_edge == 1) {
+        ALOGI("BuildLayerStack: matched 204x204 FOD layer rect=(%d,%d)-(%d,%d) comp=%d -> hwc_layer[0x82]=1",
+              matched_l, matched_t, matched_r, matched_b, matched_comp);
+    } else if (log_edge == -1) {
+        ALOGI("BuildLayerStack: 204x204 FOD layer cleared -> hwc_layer[0x82]=0");
+    }
 
     if (fn) {
         return fn(this_ptr);
@@ -707,6 +1046,10 @@ int drmModeAtomicCommit(int fd, drmModeAtomicReqPtr req, uint32_t flags, void *u
     int is_test_only = (flags & DRM_MODE_ATOMIC_TEST_ONLY) != 0;
     int ensure_fppress_on = 0;
     int notify_fppress_off = 0;
+    int log_commit_edge = 0;
+    uint32_t log_plane_id = 0, log_w = 0, log_h = 0;
+    int32_t log_x = 0, log_y = 0;
+    uint64_t log_zpos = 0;
 
     if (g_planes_initialized && req != NULL && add_fn != NULL) {
         int any_plane_touched = 0;
@@ -760,7 +1103,8 @@ int drmModeAtomicCommit(int fd, drmModeAtomicReqPtr req, uint32_t flags, void *u
             for (int i = 0; i < g_num_planes; i++) {
                 plane_track_t *p = &g_planes[i];
                 if (p == candidate_204) {
-                    add_fn(req, p->plane_id, p->zpos_prop, p->base_zpos | FOD_PRESSED_BIT);
+                    uint64_t tagged_zpos = p->base_zpos | FOD_PRESSED_BIT;
+                    add_fn(req, p->plane_id, p->zpos_prop, tagged_zpos);
                     if (!is_test_only) {
                         p->fod_tagged = 1;
                     }
@@ -780,10 +1124,20 @@ int drmModeAtomicCommit(int fd, drmModeAtomicReqPtr req, uint32_t flags, void *u
             if (!is_test_only) {
                 if (candidate_204 != NULL) {
                     ensure_fppress_on = 1;
+                    if (!g_lightspot_committed) {
+                        log_commit_edge = 1;
+                        log_plane_id = candidate_204->plane_id;
+                        log_x = candidate_204->cur_x;
+                        log_y = candidate_204->cur_y;
+                        log_w = candidate_204->cur_w;
+                        log_h = candidate_204->cur_h;
+                        log_zpos = candidate_204->base_zpos | FOD_PRESSED_BIT;
+                    }
                     g_lightspot_committed = 1;
                 } else if (g_lightspot_committed) {
                     g_lightspot_committed = 0;
                     notify_fppress_off = 1;
+                    log_commit_edge = -1;
                 }
             }
         }
@@ -809,6 +1163,13 @@ int drmModeAtomicCommit(int fd, drmModeAtomicReqPtr req, uint32_t flags, void *u
 
     if (notify_fppress_off) {
         write_sysfs_zero(OPPO_NOTIFY_FPPRESS_PATH);
+    }
+
+    if (log_commit_edge == 1) {
+        ALOGI("drmModeAtomicCommit: FOD lightspot ON plane=%u rect=(%d,%d %ux%u) zpos=0x%lx ret=%d",
+              log_plane_id, log_x, log_y, log_w, log_h, (unsigned long)log_zpos, ret);
+    } else if (log_commit_edge == -1) {
+        ALOGI("drmModeAtomicCommit: FOD lightspot OFF -> notify_fppress=0 ret=%d", ret);
     }
 
     return ret;

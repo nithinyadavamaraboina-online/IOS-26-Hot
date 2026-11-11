@@ -1,18 +1,18 @@
 {
   "response": [
     {
-      "datetime": 1794411259,
-      "filename": "RMX1931-Android17-iOSBeta-OTA-v2.1.9-b1.zip",
-      "id": "54d2f14821d08f8a37d840d1089cf5b5c4e64a826c4b02c1984c252a0842173b",
-      "sha256": "54d2f14821d08f8a37d840d1089cf5b5c4e64a826c4b02c1984c252a0842173b",
+      "datetime": 1794426139,
+      "filename": "RMX1931-Android17-iOSBeta-OTA-v2.1.10-b1.zip",
+      "id": "4968c7e0001f66cecfc872accb9fa198bf2bce918d7bc7c62d7eff03deaa6630",
+      "sha256": "4968c7e0001f66cecfc872accb9fa198bf2bce918d7bc7c62d7eff03deaa6630",
       "romtype": "PIXELOS",
       "channel": "ios_beta",
-      "size": 65196400,
-      "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/ios-beta-v2.1.9-b1/RMX1931-Android17-iOSBeta-OTA-v2.1.9-b1.zip",
-      "version": "v2.1.9-b1",
-      "tag": "ios-beta-v2.1.9-b1",
+      "size": 65447093,
+      "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/ios-beta-v2.1.10-b1/RMX1931-Android17-iOSBeta-OTA-v2.1.10-b1.zip",
+      "version": "v2.1.10-b1",
+      "tag": "ios-beta-v2.1.10-b1",
       "device": "RMX1931",
-      "changelog": "What's New in Pixel OS v2.1.9-b1 (iOS Style UI Beta):\n\u2022 Fixed In-Display Fingerprint: Pressing the fingerprint sensor during setup and on the lock screen now lights up properly and registers your finger right away.\n\u2022 Fixed Dual SIM: Both SIM cards now work together reliably for calls, SMS, and mobile data.\n\u2022 Fixed Calls, SMS & OTPs: Sending text messages, receiving bank/login OTPs, and making HD voice calls (including on Jio 4G/5G) now work properly.\n\u2022 Fixed Phone App Warning: Removed the \"This device isn't supported\" warning banner when opening the Phone app after a restart.\n\u2022 Fixed PhonePe & Banking Apps: Stopped PhonePe and other UPI/banking apps from randomly closing or crashing when you open or switch back to them.\n\u2022 Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away."
+      "changelog": "What's New in Pixel OS v2.1.10-b1 (iOS Style UI Beta):\n\u2022 Fixed In-Display Fingerprint: Pressing the fingerprint sensor during setup and on the lock screen now lights up properly and registers your finger right away.\n\u2022 Fixed Dual SIM: Both SIM cards now work together reliably for calls, SMS, and mobile data.\n\u2022 Fixed Calls, SMS & OTPs: Sending text messages, receiving bank/login OTPs, and making HD voice calls (including on Jio 4G/5G) now work properly.\n\u2022 Fixed Phone App Warning: Removed the \"This device isn't supported\" warning banner when opening the Phone app after a restart.\n\u2022 Fixed PhonePe & Banking Apps: Stopped PhonePe and other UPI/banking apps from randomly closing or crashing when you open or switch back to them.\n\u2022 Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away."
     }
   ]
 }

@@ -1269,7 +1269,7 @@ def main() -> int:
     ota_repo = os.environ.get("OTA_GITHUB_REPO", "nithinyadavamaraboina-online/PixelOS-Android17-RMX1931")
     default_tag = f"ios-beta-{dt_str}" if is_ios_beta else f"pixelos-stable-{dt_str}"
     ota_release_tag = os.environ.get("OTA_RELEASE_TAG", default_tag)
-    ota_version = os.environ.get("OTA_VERSION", "v2.1.9-b1" if is_ios_beta else "v2.1.9")
+    ota_version = os.environ.get("OTA_VERSION", "v2.1.10-b1" if is_ios_beta else "v2.1.10")
     if is_ios_beta:
         ota_manifest_url = f"https://raw.githubusercontent.com/{ota_repo}/main/ota/ios-beta/rmx1931.json"
     else:

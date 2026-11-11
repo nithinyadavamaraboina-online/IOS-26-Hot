@@ -36,14 +36,14 @@ done
 
 if [ "${ROM_FLAVOR}" = "ios-beta" ]; then
     OTA_CHANNEL="ios_beta"
-    OTA_VERSION="${OTA_VERSION:-v2.1.9-b1}"
+    OTA_VERSION="${OTA_VERSION:-v2.1.10-b1}"
     OTA_RELEASE_TAG="${OTA_RELEASE_TAG:-ios-beta-${OTA_VERSION}}"
     ROM_FILENAME="${ROM_FILENAME:-RMX1931-Android17-iOSBeta-OTA-${OTA_VERSION}.zip}"
     MANIFEST_OUT="${MANIFEST_OUT:-${REPO_ROOT}/ota/ios-beta/rmx1931.json}"
     OTA_MANIFEST_PROP_URL="https://raw.githubusercontent.com/${OTA_GITHUB_REPO}/main/ota/ios-beta/rmx1931.json"
 elif [ "${ROM_FLAVOR}" = "pixelos" ]; then
     OTA_CHANNEL="stable"
-    OTA_VERSION="${OTA_VERSION:-v2.1.9}"
+    OTA_VERSION="${OTA_VERSION:-v2.1.10}"
     OTA_RELEASE_TAG="${OTA_RELEASE_TAG:-pixelos-stable-${OTA_VERSION}}"
     ROM_FILENAME="${ROM_FILENAME:-RMX1931-Android17-PixelOS-OTA.zip}"
     MANIFEST_OUT="${MANIFEST_OUT:-${REPO_ROOT}/ota/rmx1931.json}"
@@ -114,6 +114,8 @@ cp -f "${SYS_SUB}/etc/samurai-mods/release-mods.json" "${INC_STAGE}/ota_payload/
 cp -f "${SYS_SUB}/etc/udfps_icon_pressed.webp" "${INC_STAGE}/ota_payload/udfps_icon_pressed.webp"
 cp -f "${VEN_MNT}/lib64/hw/com.qti.chi.override.so" "${INC_STAGE}/ota_payload/com.qti.chi.override.so"
 cp -f "${VEN_MNT}/lib64/libfod_zpos_hook.so" "${INC_STAGE}/ota_payload/libfod_zpos_hook.so"
+cp -f "${VEN_MNT}/lib64/libsdedrm.so" "${INC_STAGE}/ota_payload/libsdedrm.so"
+cp -f "${VEN_MNT}/lib64/hw/hwcomposer.qcom.so" "${INC_STAGE}/ota_payload/hwcomposer.qcom.so"
 cp -f "${VEN_MNT}/bin/hw/android.hardware.biometrics.fingerprint@2.3-service.samurai" "${INC_STAGE}/ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai"
 cp -f "${VEN_MNT}/bin/hw/vendor.oplus.hardware.syshelper.service" "${INC_STAGE}/ota_payload/vendor.oplus.hardware.syshelper.service"
 cp -f "${VEN_MNT}/etc/init/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc" "${INC_STAGE}/ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc"
@@ -624,6 +626,18 @@ if [ -f /tmp/ota_payload/libfod_zpos_hook.so ]; then
     chmod 0644 /mnt_ven/lib64/libdisplaydebug.so
     chcon u:object_r:vendor_file:s0 /mnt_ven/lib64/libdisplaydebug.so
 fi
+if [ -f /tmp/ota_payload/libsdedrm.so ]; then
+    cp -f /tmp/ota_payload/libsdedrm.so /mnt_ven/lib64/libsdedrm.so
+    chown 0:0 /mnt_ven/lib64/libsdedrm.so
+    chmod 0644 /mnt_ven/lib64/libsdedrm.so
+    chcon u:object_r:vendor_file:s0 /mnt_ven/lib64/libsdedrm.so
+fi
+if [ -f /tmp/ota_payload/hwcomposer.qcom.so ]; then
+    cp -f /tmp/ota_payload/hwcomposer.qcom.so /mnt_ven/lib64/hw/hwcomposer.qcom.so
+    chown 0:0 /mnt_ven/lib64/hw/hwcomposer.qcom.so
+    chmod 0644 /mnt_ven/lib64/hw/hwcomposer.qcom.so
+    chcon u:object_r:vendor_file:s0 /mnt_ven/lib64/hw/hwcomposer.qcom.so
+fi
 
 for vcfg in fstab.qcom media_codecs.xml media_codecs_c2.xml media_codecs_performance_c2.xml media_codecs_performance.xml powerhint.json; do
     cp -f "/tmp/ota_payload/\$vcfg" "/mnt_ven/etc/\$vcfg"
@@ -1074,6 +1088,8 @@ package_extract_file("ota_payload/samurai_ota_bcb", "/tmp/ota_payload/samurai_ot
 package_extract_file("ota_payload/samurai-mod-helper.jar", "/tmp/ota_payload/samurai-mod-helper.jar");
 package_extract_file("ota_payload/udfps_icon_pressed.webp", "/tmp/ota_payload/udfps_icon_pressed.webp");
 package_extract_file("ota_payload/libfod_zpos_hook.so", "/tmp/ota_payload/libfod_zpos_hook.so");
+package_extract_file("ota_payload/libsdedrm.so", "/tmp/ota_payload/libsdedrm.so");
+package_extract_file("ota_payload/hwcomposer.qcom.so", "/tmp/ota_payload/hwcomposer.qcom.so");
 package_extract_file("ota_payload/samurai-mods-sync.sh", "/tmp/ota_payload/samurai-mods-sync.sh");
 package_extract_file("ota_payload/samurai-gcam-sync.sh", "/tmp/ota_payload/samurai-gcam-sync.sh");
 package_extract_file("ota_payload/release-mods.json", "/tmp/ota_payload/release-mods.json");

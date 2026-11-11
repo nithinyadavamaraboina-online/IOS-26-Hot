@@ -128,6 +128,7 @@ void open(void) {}
 void read(void) {}
 void write(void) {}
 void close(void) {}
+int getpid(void) { return 0; }
 void pthread_mutex_lock(void) {}
 void pthread_mutex_unlock(void) {}
 void pthread_create(void) {}
@@ -140,6 +141,13 @@ unsigned long strlen(const char* s) { (void)s; return 0; }
 EOF
 cat << 'EOF' > "${BIONIC_STUBS}/libdl_stub.c"
 void dlsym(void) {}
+int dl_iterate_phdr(void *cb, void *data) { (void)cb; (void)data; return 0; }
+EOF
+cat << 'EOF' > "${BIONIC_STUBS}/liblog_stub.c"
+int __android_log_print(int prio, const char *tag, const char *fmt, ...) {
+    (void)prio; (void)tag; (void)fmt;
+    return 0;
+}
 EOF
 cat << 'EOF' > "${BIONIC_STUBS}/libgui_stub.S"
 .text
@@ -165,12 +173,14 @@ clang --target=aarch64-linux-android30 -fuse-ld=lld -ffreestanding -nostdinc -fn
 clang --target=aarch64-linux-android30 -fuse-ld=lld -ffreestanding -nostdinc -fno-builtin -nostdlib -shared -fPIC \
     -Wl,-soname,libdl.so -o "${BIONIC_STUBS}/libdl.so" "${BIONIC_STUBS}/libdl_stub.c"
 clang --target=aarch64-linux-android30 -fuse-ld=lld -ffreestanding -nostdinc -fno-builtin -nostdlib -shared -fPIC \
+    -Wl,-soname,liblog.so -o "${BIONIC_STUBS}/liblog.so" "${BIONIC_STUBS}/liblog_stub.c"
+clang --target=aarch64-linux-android30 -fuse-ld=lld -ffreestanding -nostdinc -fno-builtin -nostdlib -shared -fPIC \
     -Wl,-soname,libgui.so -o "${BIONIC_STUBS}/libgui.so" "${BIONIC_STUBS}/libgui_stub.S"
 clang --target=aarch64-linux-android30 -fuse-ld=lld -ffreestanding -nostdinc -fno-builtin -O2 -Wall -Wextra -Werror -nostdlib -shared -fPIC \
-    -Wl,-soname,libdisplaydebug.so \
+    -Wl,-soname,libdisplaydebug.so -Wl,-z,global -Wl,-z,now -Wl,--no-undefined \
     -o "${OUT_BIN}/libfod_zpos_hook.so" \
     "${A17_ROOT}/vendor-patches/fod_zpos_hook.c" \
-    -L"${BIONIC_STUBS}" -lc -ldl
+    -L"${BIONIC_STUBS}" -llog -lc -ldl
 llvm-strip "${OUT_BIN}/libfod_zpos_hook.so"
 chmod 0644 "${OUT_BIN}/libfod_zpos_hook.so"
 cp -f "${OUT_BIN}/libfod_zpos_hook.so" "${WORK_APKS}/libfod_zpos_hook.so"

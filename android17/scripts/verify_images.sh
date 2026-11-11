@@ -20,10 +20,10 @@ ZIPALIGN="${WORK_ROOT}/tools/android-sdk/build-tools/35.0.0/zipalign"
 
 if [ "${ROM_FLAVOR}" = "ios-beta" ]; then
     EXP_CH="ios_beta"
-    EXP_OTA_VER="${OTA_VERSION:-v2.1.9-b1}"
+    EXP_OTA_VER="${OTA_VERSION:-v2.1.10-b1}"
 elif [ "${ROM_FLAVOR}" = "pixelos" ]; then
     EXP_CH="stable"
-    EXP_OTA_VER="${OTA_VERSION:-v2.1.9}"
+    EXP_OTA_VER="${OTA_VERSION:-v2.1.10}"
 else
     echo "FAIL: Unsupported ROM_FLAVOR=${ROM_FLAVOR}"
     exit 1
@@ -210,9 +210,19 @@ grep -q "^persist.vendor.fingerprint.version=Goodix$" "${SYS_ROOT}/build.prop" |
 [ -f "${MNT_V}/ven/lib64/libfod_zpos_hook.so" ] || { echo "FAIL: Missing /vendor/lib64/libfod_zpos_hook.so!"; exit 1; }
 [ -f "${MNT_V}/ven/lib64/libdisplaydebug.so" ] || { echo "FAIL: Missing /vendor/lib64/libdisplaydebug.so!"; exit 1; }
 cmp -s "${MNT_V}/ven/lib64/libfod_zpos_hook.so" "${MNT_V}/ven/lib64/libdisplaydebug.so" || { echo "FAIL: /vendor/lib64/libdisplaydebug.so does not match libfod_zpos_hook.so!"; exit 1; }
-for fod_sym in _ZN3sdm10HWCDisplay15BuildLayerStackEv _ZN3sdm10HWCDisplay15CanSkipValidateEv drmModeAtomicAddProperty drmModeAtomicCommit; do
-    readelf -Ws "${MNT_V}/ven/lib64/libfod_zpos_hook.so" | grep -q "${fod_sym}" || { echo "FAIL: libfod_zpos_hook.so missing exported symbol ${fod_sym}!"; exit 1; }
+for fod_sym in _ZN3sdm12HWCCallbacks8RegisterEN4HWC28CallbackEPvPFvvE _ZN3sdm10HWCDisplay15BuildLayerStackEv _ZN3sdm10HWCDisplay15CanSkipValidateEv drmModeAtomicAddProperty drmModeAtomicCommit dl_iterate_phdr __android_log_print; do
+    readelf -Ws "${MNT_V}/ven/lib64/libfod_zpos_hook.so" | grep -q "${fod_sym}" || { echo "FAIL: libfod_zpos_hook.so missing symbol ${fod_sym}!"; exit 1; }
 done
+! readelf -Ws "${MNT_V}/ven/lib64/libfod_zpos_hook.so" | grep -Eq "[[:space:]]UND[[:space:]]+dlsym(@|$)" || { echo "FAIL: libfod_zpos_hook.so still uses dlsym(RTLD_NEXT) instead of dl_iterate_phdr!"; exit 1; }
+FOD_DYN="$(readelf -dW "${MNT_V}/ven/lib64/libdisplaydebug.so")"
+echo "${FOD_DYN}" | grep "(SONAME)" | grep -q "\[libdisplaydebug\.so\]" || { echo "FAIL: libdisplaydebug.so missing SONAME libdisplaydebug.so!"; exit 1; }
+echo "${FOD_DYN}" | grep "(FLAGS_1)" | grep -q "GLOBAL" || { echo "FAIL: libdisplaydebug.so missing DF_1_GLOBAL (-Wl,-z,global)!"; exit 1; }
+echo "${FOD_DYN}" | grep "(FLAGS_1)" | grep -q "NOW" || { echo "FAIL: libdisplaydebug.so missing DF_1_NOW (-Wl,-z,now)!"; exit 1; }
+echo "${FOD_DYN}" | grep -q "(INIT_ARRAY)" || { echo "FAIL: libdisplaydebug.so missing DT_INIT_ARRAY constructor!"; exit 1; }
+echo "${FOD_DYN}" | grep "(NEEDED)" | grep -q "\[liblog\.so\]" || { echo "FAIL: libdisplaydebug.so missing DT_NEEDED liblog.so!"; exit 1; }
+grep -a -q "FodZposHook" "${MNT_V}/ven/lib64/libdisplaydebug.so" || { echo "FAIL: libdisplaydebug.so missing FodZposHook log tag!"; exit 1; }
+readelf -dW "${MNT_V}/ven/lib64/libsdedrm.so" | grep "(NEEDED)" | head -n 1 | grep -q "\[libdisplaydebug\.so\]" || { echo "FAIL: libsdedrm.so DT_NEEDED[0] is not libdisplaydebug.so!"; exit 1; }
+readelf -dW "${MNT_V}/ven/lib64/hw/hwcomposer.qcom.so" | grep "(NEEDED)" | head -n 1 | grep -q "\[libdisplaydebug\.so\]" || { echo "FAIL: hwcomposer.qcom.so DT_NEEDED[0] is not libdisplaydebug.so!"; exit 1; }
 python3 - "${MNT_V}/odm/lib64/libgf_hal_G3.so" <<'GFVFY'
 import struct, sys
 b = open(sys.argv[1], "rb").read()
@@ -412,6 +422,7 @@ with zipfile.ZipFile(sys.argv[2], "r") as zf:
     d4 = zf.read("classes4.dex")
     assert b"SamuraiPlatformSigBridge" in d4, "services.jar missing SamuraiPlatformSigBridge!"
     assert b"SamuraiUdfpsOpticalOverlay" in d4, "services.jar missing SamuraiUdfpsOpticalOverlay!"
+    assert b"onOverlayShown: " in d4 and b"onFingerDown: (" in d4, "services.jar missing SamuraiUdfpsOverlay transition telemetry!"
     assert b"/system/etc/udfps_icon_pressed.webp" in d4, "services.jar missing /system/etc/udfps_icon_pressed.webp!"
     assert b"onWallpaperCommand" in d4 and b"android.wallpaper.tap" in d4, "services.jar missing onWallpaperCommand Home Screen double-tap lock bridge!"
     assert b"STOCK_NEXUS_LAUNCHER_SHA256" in d4 and bytes.fromhex("a86bdb059f28f265162d64ce6c8d9772901d227e741581d1f04a5ed132a574d0") in d4, "services.jar missing STOCK_NEXUS_LAUNCHER_SHA256 two-way cert bridge!"
@@ -716,6 +727,8 @@ with zipfile.ZipFile(bridge_zip, "r") as zf:
     assert "ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc" in names, "Bridge OTA missing fp 2.3 rc!"
     assert "ota_payload/android.hardware.graphics.composer@2.4-service.rc" in names, "Bridge OTA missing composer 2.4 rc!"
     assert "ota_payload/libfod_zpos_hook.so" in names, "Bridge OTA missing libfod_zpos_hook.so!"
+    assert "ota_payload/libsdedrm.so" in names, "Bridge OTA missing libsdedrm.so!"
+    assert "ota_payload/hwcomposer.qcom.so" in names, "Bridge OTA missing hwcomposer.qcom.so!"
     assert "ota_payload/libgf_hal_G3.so" in names, "Bridge OTA missing libgf_hal_G3.so!"
     assert "ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai" in names, "Bridge OTA missing fp 2.3 binary!"
     assert "ota_payload/vendor.oplus.hardware.syshelper.service" in names, "Bridge OTA missing syshelper binary!"
@@ -743,7 +756,7 @@ with zipfile.ZipFile(bridge_zip, "r") as zf:
 with zipfile.ZipFile(sys_zip, "r") as zf:
     snames = set(zf.namelist())
     assert "system.new.dat.br" in snames and "system.transfer.list" in snames, "Stable System.zip missing system.new.dat.br!"
-    assert "vendor_patch/com.qti.chi.override.so" in snames and "vendor_patch/fstab.qcom" in snames and "vendor_patch/libfod_zpos_hook.so" in snames and "vendor_patch/libgf_hal_G3.so" in snames and "vendor_patch/android.hardware.graphics.composer@2.4-service.rc" in snames, "Stable System.zip missing vendor_patch files!"
+    assert "vendor_patch/com.qti.chi.override.so" in snames and "vendor_patch/fstab.qcom" in snames and "vendor_patch/libfod_zpos_hook.so" in snames and "vendor_patch/libsdedrm.so" in snames and "vendor_patch/hwcomposer.qcom.so" in snames and "vendor_patch/libgf_hal_G3.so" in snames and "vendor_patch/android.hardware.graphics.composer@2.4-service.rc" in snames, "Stable System.zip missing vendor_patch files!"
     sys_chi = zf.read("vendor_patch/com.qti.chi.override.so")
     assert len(sys_chi) == 2172832 and struct.unpack_from("<I", sys_chi, 0x5639c)[0] == 0x14027519 and struct.unpack_from("<I", sys_chi, 0xdccc4)[0] == 0x14005aff, "Stable System.zip CHI override missing 4K60 EIS3 hooks!"
     sys_fstab = zf.read("vendor_patch/fstab.qcom").decode("utf-8")
@@ -796,7 +809,7 @@ for st_path in (stable_json, root_json):
     st_e = json.load(open(st_path, encoding="utf-8"))["response"][0]
     assert (
         st_e["channel"] == "stable"
-        and st_e["version"] == "v2.1.9"
+        and st_e["version"] == "v2.1.10"
         and st_e["sha256"] == EXPECTED_STABLE_SHA
         and st_e["id"] == EXPECTED_STABLE_SHA
     ), f"Stable manifest {st_path} mismatch during ios-beta build: {st_e}"
@@ -809,7 +822,7 @@ digest = h.hexdigest()
 assert e_beta["sha256"] == digest and e_beta["id"] == digest, "SHA-256 mismatch in ota/ios-beta/rmx1931.json!"
 with zipfile.ZipFile(beta_zip, "r") as zf:
     bnames = set(zf.namelist())
-    for req_ios in ("IosStyler.apk", "IosSettings.apk", "IosControlCenter.apk", "IosDialer.apk", "IosMessages.apk", "privapp-permissions-ios-dialer.xml", "privapp-permissions-ios-messages.xml", "SamuraiLauncherOverlay.apk", "SamuraiIos26WallpaperOverlay.apk", "SamuraiTelephonyOverlay.apk", "qti_ims_telephony.tar.gz", "qti_ims_fixperms.sh", "NexusLauncherRelease.apk", "fstab.qcom", "compatibility_matrix.device.xml", "android.hardware.biometrics.fingerprint@2.3-service.samurai", "vendor.oplus.hardware.syshelper.service", "vendor.oplus.hardware.syshelper.service.rc", "android.hardware.biometrics.fingerprint@2.3-service.samurai.xml", "vendor.oplus.hardware.syshelper.service.xml", "vendor.oplus.hardware.biometrics.fingerprint@2.1-service", "android.hardware.biometrics.fingerprint@2.3-service.samurai.rc", "android.hardware.graphics.composer@2.4-service.rc", "libfod_zpos_hook.so", "libgf_hal_G3.so", "udfps_icon_pressed.webp", "vendor_sepolicy.cil"):
+    for req_ios in ("IosStyler.apk", "IosSettings.apk", "IosControlCenter.apk", "IosDialer.apk", "IosMessages.apk", "privapp-permissions-ios-dialer.xml", "privapp-permissions-ios-messages.xml", "SamuraiLauncherOverlay.apk", "SamuraiIos26WallpaperOverlay.apk", "SamuraiTelephonyOverlay.apk", "qti_ims_telephony.tar.gz", "qti_ims_fixperms.sh", "NexusLauncherRelease.apk", "fstab.qcom", "compatibility_matrix.device.xml", "android.hardware.biometrics.fingerprint@2.3-service.samurai", "vendor.oplus.hardware.syshelper.service", "vendor.oplus.hardware.syshelper.service.rc", "android.hardware.biometrics.fingerprint@2.3-service.samurai.xml", "vendor.oplus.hardware.syshelper.service.xml", "vendor.oplus.hardware.biometrics.fingerprint@2.1-service", "android.hardware.biometrics.fingerprint@2.3-service.samurai.rc", "android.hardware.graphics.composer@2.4-service.rc", "libfod_zpos_hook.so", "libsdedrm.so", "hwcomposer.qcom.so", "libgf_hal_G3.so", "udfps_icon_pressed.webp", "vendor_sepolicy.cil"):
         assert f"ota_payload/{req_ios}" in bnames, f"iOS Beta OTA missing ota_payload/{req_ios}!"
     for retired_ios in ("ICall26.apk", "SamuraiICallOverlay.apk"):
         assert f"ota_payload/{retired_ios}" not in bnames, f"iOS Beta OTA still contains retired {retired_ios}!"
