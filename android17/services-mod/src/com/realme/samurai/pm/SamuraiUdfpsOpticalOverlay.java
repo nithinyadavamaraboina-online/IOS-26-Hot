@@ -31,33 +31,39 @@ import java.util.concurrent.TimeUnit;
 /**
  * System-level Optical UDFPS Illumination Surface for Realme X2 Pro (RMX1931 / samurai).
  *
- * Ports Project Infinity-X 4.1 (lineage-24.0) optical UDFPS illumination architecture:
- * - Renders the factory-calibrated 190x190 warm-amber lightspot (/system/etc/udfps_icon_pressed.webp,
- *   RGB (255,208,188) center -> (255,255,230) edge) at physical sensor coordinates (445, 2061)
- *   (center (540, 2156), radius 95px on the 1080x2400 Samsung SOFEF03F-M 90Hz AMOLED panel).
- * - Uses TYPE_SECURE_SYSTEM_OVERLAY (2015, WindowManagerPolicy layer 33) with FLAG_NOT_TOUCHABLE
- *   and PRIVATE_FLAG_TRUSTED_OVERLAY so the 190x190 surface sits above all apps, Settings,
- *   Keyguard/LockScreen, NotificationShade, UdfpsTouchOverlay (layer 25), and ControlCenter,
- *   while passing 100% of touch events straight through.
- * - Pre-warms the 190x190 hardware layer on session start so HWC/DRM assigns a dedicated 190x190
- *   SDE plane before finger-down; libfod_zpos_hook.so then tags that plane's PLANE_PROP_ZPOS
- *   with FOD_PRESSED_LAYER_ZORDER (0x20000000u) so sde_crtc.c places the hardware black dim layer
- *   directly below the 190x190 lightspot and triggers GF_NET_EVENT_UI_READY to libgf_hal_G3.so.
+ * Dual-geometry collision-free architecture for Goodix G3 (GF9500) on 1080x2400 Samsung SOFEF03F-M:
+ * - Physical sensor center: (540, 2156), optical radius 95px (190x190 UI icon in SystemUI/Settings).
+ * - Unpressed active session (PREWARM_SIZE = 172 at (454, 2070)): keeps WindowManager, BLAST
+ *   BufferQueue, and HWUI RenderThread warm across all 20 enrollment taps with a 2x2 1/255-alpha
+ *   center pixel, 18px smaller than 190x190 UI layers and 32px smaller than the 204x204 lightspot.
+ * - Pressed illumination (PRESSED_SIZE = 204 at (438, 2054)): renders the factory-calibrated
+ *   warm-amber lightspot (/system/etc/udfps_icon_pressed.webp scaled to 204x204 ARGB_8888,
+ *   r = 102px = 95px optical cone + 7px anti-vignetting margin) on TYPE_SECURE_SYSTEM_OVERLAY
+ *   (2015, layer 33). libfod_zpos_hook.so matches ONLY 200..208px sensor planes, avoiding all
+ *   190x190 transparent SystemUI/Settings planes and triggering GF_NET_EVENT_UI_READY cleanly.
  */
 public final class SamuraiUdfpsOpticalOverlay {
     private static final String TAG = "SamuraiUdfpsOverlay";
     private static final String CALIBRATED_WEBP_PATH = "/system/etc/udfps_icon_pressed.webp";
     private static final String FP_ENABLE_PATH = "/proc/touchpanel/fp_enable";
+    private static final String DIMLAYER_HBM_PATH = "/sys/kernel/oppo_display/dimlayer_hbm";
     private static final String NOTIFY_FPPRESS_PATH = "/sys/kernel/oppo_display/notify_fppress";
 
-    // Native portrait 1080x2400 sensor geometry: center (540, 2156), radius 95 -> 190x190 at (445, 2061)
+    // Native portrait 1080x2400 sensor center: (540, 2156)
     private static final int DISPLAY_W = 1080;
     private static final int DISPLAY_H = 2400;
-    private static final int SENSOR_SIZE = 190;
-    private static final int SENSOR_LEFT = 445;
-    private static final int SENSOR_TOP = 2061;
 
-    private static final long MAX_PRESS_HOLD_MS = 2200L;
+    // Prewarm geometry (active session, unpressed): 172x172 centered at (540, 2156)
+    private static final int PREWARM_SIZE = 172;
+    private static final int PREWARM_LEFT = 454;
+    private static final int PREWARM_TOP = 2070;
+
+    // Pressed optical lightspot geometry: 204x204 centered at (540, 2156) (14px clear of 190x190 UI)
+    private static final int PRESSED_SIZE = 204;
+    private static final int PRESSED_LEFT = 438;
+    private static final int PRESSED_TOP = 2054;
+
+    private static final long MAX_PRESS_HOLD_MS = 3500L;
 
     private static final Object LOCK = new Object();
     private static volatile Context sContext;
@@ -66,6 +72,9 @@ public final class SamuraiUdfpsOpticalOverlay {
     private static WindowManager.LayoutParams sLayoutParams;
     private static LightspotView sView;
     private static boolean sViewAdded = false;
+    private static int sLastAppliedX = Integer.MIN_VALUE;
+    private static int sLastAppliedY = Integer.MIN_VALUE;
+    private static int sLastAppliedSize = -1;
     private static volatile boolean sSessionActive = false;
     private static volatile boolean sPressed = false;
     private static Bitmap sPressedBitmap;
@@ -76,9 +85,8 @@ public final class SamuraiUdfpsOpticalOverlay {
             if (sPressed) {
                 Log.w(TAG, "Auto-releasing optical UDFPS lightspot after timeout");
                 sPressed = false;
-                if (sView != null) {
-                    sView.invalidate();
-                }
+                writeSysfsSafe(NOTIFY_FPPRESS_PATH, "0");
+                syncWindowOnMainThread(sSessionActive, false);
             }
         }
     };
@@ -132,7 +140,7 @@ public final class SamuraiUdfpsOpticalOverlay {
             h.post(new Runnable() {
                 @Override
                 public void run() {
-                    syncWindowOnMainThread(true, sPressed);
+                    syncWindowOnMainThread(sSessionActive, sPressed);
                 }
             });
         }
@@ -142,6 +150,8 @@ public final class SamuraiUdfpsOpticalOverlay {
         sSessionActive = true;
         sPressed = true;
         writeSysfsSafe(FP_ENABLE_PATH, "1");
+        writeSysfsSafe(DIMLAYER_HBM_PATH, "1");
+        writeSysfsSafe(NOTIFY_FPPRESS_PATH, "1");
         Handler h = ensureMainHandler();
         if (h == null) {
             return;
@@ -194,6 +204,7 @@ public final class SamuraiUdfpsOpticalOverlay {
 
     public static void onFingerUp() {
         sPressed = false;
+        writeSysfsSafe(NOTIFY_FPPRESS_PATH, "0");
         Handler h = ensureMainHandler();
         if (h != null) {
             h.postAtFrontOfQueue(new Runnable() {
@@ -207,7 +218,22 @@ public final class SamuraiUdfpsOpticalOverlay {
     }
 
     public static void onAcquired(int acquiredInfo, int vendorCode) {
-        // Keep lightspot steady during capture; release occurs on enroll/auth result or finger up.
+        // Keep lightspot steady on GOOD (0), VENDOR (6), and START (7); release on terminal
+        // per-tap retry hints PARTIAL..TOO_FAST (1..5) so the next press gets a fresh UI_READY.
+        if (acquiredInfo >= 1 && acquiredInfo <= 5) {
+            sPressed = false;
+            writeSysfsSafe(NOTIFY_FPPRESS_PATH, "0");
+            Handler h = ensureMainHandler();
+            if (h != null) {
+                h.postAtFrontOfQueue(new Runnable() {
+                    @Override
+                    public void run() {
+                        h.removeCallbacks(sAutoReleaseRunnable);
+                        syncWindowOnMainThread(sSessionActive, false);
+                    }
+                });
+            }
+        }
     }
 
     public static void onEnrollResult(final int remaining) {
@@ -215,6 +241,7 @@ public final class SamuraiUdfpsOpticalOverlay {
         if (remaining <= 0) {
             sSessionActive = false;
         }
+        writeSysfsSafe(NOTIFY_FPPRESS_PATH, "0");
         Handler h = ensureMainHandler();
         if (h != null) {
             h.postAtFrontOfQueue(new Runnable() {
@@ -232,6 +259,7 @@ public final class SamuraiUdfpsOpticalOverlay {
         if (fingerId != 0) {
             sSessionActive = false;
         }
+        writeSysfsSafe(NOTIFY_FPPRESS_PATH, "0");
         Handler h = ensureMainHandler();
         if (h != null) {
             h.postAtFrontOfQueue(new Runnable() {
@@ -287,25 +315,40 @@ public final class SamuraiUdfpsOpticalOverlay {
                     sLayoutParams = createLayoutParams();
                 }
 
-                updateCoordinatesForRotation(ctx, sLayoutParams);
-
-                if (!pressed) {
-                    if (sViewAdded) {
+                if (!sessionActive) {
+                    if (sViewAdded && sView.getVisibility() != View.GONE) {
                         sView.setVisibility(View.GONE);
                         sView.invalidate();
                     }
                     return;
                 }
 
+                int boxLeft = pressed ? PRESSED_LEFT : PREWARM_LEFT;
+                int boxTop = pressed ? PRESSED_TOP : PREWARM_TOP;
+                int boxSize = pressed ? PRESSED_SIZE : PREWARM_SIZE;
+                updateCoordinatesForRotation(ctx, sLayoutParams, boxLeft, boxTop, boxSize);
+
                 if (!sViewAdded) {
                     sView.setVisibility(View.VISIBLE);
                     sWindowManager.addView(sView, sLayoutParams);
                     sViewAdded = true;
+                    sLastAppliedX = sLayoutParams.x;
+                    sLastAppliedY = sLayoutParams.y;
+                    sLastAppliedSize = boxSize;
                 } else {
-                    if (sView.getVisibility() != View.VISIBLE) {
+                    boolean wasHidden = (sView.getVisibility() != View.VISIBLE);
+                    if (wasHidden) {
                         sView.setVisibility(View.VISIBLE);
                     }
-                    sWindowManager.updateViewLayout(sView, sLayoutParams);
+                    if (wasHidden
+                            || sLastAppliedX != sLayoutParams.x
+                            || sLastAppliedY != sLayoutParams.y
+                            || sLastAppliedSize != boxSize) {
+                        sWindowManager.updateViewLayout(sView, sLayoutParams);
+                        sLastAppliedX = sLayoutParams.x;
+                        sLastAppliedY = sLayoutParams.y;
+                        sLastAppliedSize = boxSize;
+                    }
                 }
                 sView.invalidate();
             } catch (Throwable t) {
@@ -325,10 +368,10 @@ public final class SamuraiUdfpsOpticalOverlay {
                 | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED;
 
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
-                SENSOR_SIZE,
-                SENSOR_SIZE,
-                SENSOR_LEFT,
-                SENSOR_TOP,
+                PREWARM_SIZE,
+                PREWARM_SIZE,
+                PREWARM_LEFT,
+                PREWARM_TOP,
                 2015, // WindowManager.LayoutParams.TYPE_SECURE_SYSTEM_OVERLAY -> layer 33
                 flags,
                 PixelFormat.RGBA_8888
@@ -351,7 +394,8 @@ public final class SamuraiUdfpsOpticalOverlay {
         return lp;
     }
 
-    private static void updateCoordinatesForRotation(Context ctx, WindowManager.LayoutParams lp) {
+    private static void updateCoordinatesForRotation(
+            Context ctx, WindowManager.LayoutParams lp, int boxLeft, int boxTop, int boxSize) {
         int rotation = Surface.ROTATION_0;
         try {
             DisplayManager dm = (DisplayManager) ctx.getSystemService(Context.DISPLAY_SERVICE);
@@ -364,31 +408,31 @@ public final class SamuraiUdfpsOpticalOverlay {
         } catch (Throwable ignored) {
         }
 
-        int newX = SENSOR_LEFT;
-        int newY = SENSOR_TOP;
+        int newX = boxLeft;
+        int newY = boxTop;
         switch (rotation) {
             case Surface.ROTATION_90:
-                newX = SENSOR_TOP;
-                newY = DISPLAY_W - SENSOR_LEFT - SENSOR_SIZE;
+                newX = boxTop;
+                newY = DISPLAY_W - boxLeft - boxSize;
                 break;
             case Surface.ROTATION_180:
-                newX = DISPLAY_W - SENSOR_LEFT - SENSOR_SIZE;
-                newY = DISPLAY_H - SENSOR_TOP - SENSOR_SIZE;
+                newX = DISPLAY_W - boxLeft - boxSize;
+                newY = DISPLAY_H - boxTop - boxSize;
                 break;
             case Surface.ROTATION_270:
-                newX = DISPLAY_H - SENSOR_TOP - SENSOR_SIZE;
-                newY = SENSOR_LEFT;
+                newX = DISPLAY_H - boxTop - boxSize;
+                newY = boxLeft;
                 break;
             case Surface.ROTATION_0:
             default:
-                newX = SENSOR_LEFT;
-                newY = SENSOR_TOP;
+                newX = boxLeft;
+                newY = boxTop;
                 break;
         }
         lp.x = newX;
         lp.y = newY;
-        lp.width = SENSOR_SIZE;
-        lp.height = SENSOR_SIZE;
+        lp.width = boxSize;
+        lp.height = boxSize;
     }
 
     private static Bitmap loadOrCreateCalibratedLightspot() {
@@ -400,10 +444,10 @@ public final class SamuraiUdfpsOpticalOverlay {
                 opts.inScaled = false;
                 Bitmap bmp = BitmapFactory.decodeFile(CALIBRATED_WEBP_PATH, opts);
                 if (bmp != null) {
-                    if (bmp.getWidth() == SENSOR_SIZE && bmp.getHeight() == SENSOR_SIZE) {
+                    if (bmp.getWidth() == PRESSED_SIZE && bmp.getHeight() == PRESSED_SIZE) {
                         return bmp;
                     }
-                    Bitmap scaled = Bitmap.createScaledBitmap(bmp, SENSOR_SIZE, SENSOR_SIZE, true);
+                    Bitmap scaled = Bitmap.createScaledBitmap(bmp, PRESSED_SIZE, PRESSED_SIZE, true);
                     if (scaled != null) {
                         return scaled;
                     }
@@ -413,11 +457,11 @@ public final class SamuraiUdfpsOpticalOverlay {
             Log.w(TAG, "Falling back to procedural Oppo/Realme calibrated lightspot", t);
         }
 
-        // Exact Oppo/Realme factory Goodix G3 warm-amber radial gradient fallback:
+        // Exact Oppo/Realme factory Goodix G3 warm-amber radial gradient fallback (204x204):
         // center (255, 208, 188) -> mid (255, 223, 196) -> edge (255, 255, 230)
-        Bitmap bmp = Bitmap.createBitmap(SENSOR_SIZE, SENSOR_SIZE, Bitmap.Config.ARGB_8888);
+        Bitmap bmp = Bitmap.createBitmap(PRESSED_SIZE, PRESSED_SIZE, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(bmp);
-        float radius = SENSOR_SIZE / 2.0f;
+        float radius = PRESSED_SIZE / 2.0f;
         Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
         p.setShader(new RadialGradient(
                 radius,
@@ -445,8 +489,8 @@ public final class SamuraiUdfpsOpticalOverlay {
         LightspotView(Context context) {
             super(context);
             mBitmapPaint.setDither(true);
-            // 1/255 alpha warm pixel keeps the 190x190 SurfaceFlinger layer & HWC pipe allocated
-            // during active FOD sessions while remaining 100% invisible when unpressed.
+            // 1/255 alpha warm pixel keeps the 172x172 SurfaceFlinger BLAST layer warm during
+            // active FOD sessions without colliding with 190x190 UI or 204x204 lightspot sizes.
             mPrewarmPaint.setColor(0x01FFD0BC);
             setWillNotDraw(false);
         }
@@ -457,7 +501,7 @@ public final class SamuraiUdfpsOpticalOverlay {
             if (sPressed && sPressedBitmap != null) {
                 canvas.drawBitmap(sPressedBitmap, 0.0f, 0.0f, mBitmapPaint);
             } else if (sSessionActive) {
-                canvas.drawRect(94.0f, 94.0f, 96.0f, 96.0f, mPrewarmPaint);
+                canvas.drawRect(85.0f, 85.0f, 87.0f, 87.0f, mPrewarmPaint);
             }
         }
     }

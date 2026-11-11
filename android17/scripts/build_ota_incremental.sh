@@ -36,14 +36,14 @@ done
 
 if [ "${ROM_FLAVOR}" = "ios-beta" ]; then
     OTA_CHANNEL="ios_beta"
-    OTA_VERSION="${OTA_VERSION:-v2.1.8-b1}"
+    OTA_VERSION="${OTA_VERSION:-v2.1.9-b1}"
     OTA_RELEASE_TAG="${OTA_RELEASE_TAG:-ios-beta-${OTA_VERSION}}"
     ROM_FILENAME="${ROM_FILENAME:-RMX1931-Android17-iOSBeta-OTA-${OTA_VERSION}.zip}"
     MANIFEST_OUT="${MANIFEST_OUT:-${REPO_ROOT}/ota/ios-beta/rmx1931.json}"
     OTA_MANIFEST_PROP_URL="https://raw.githubusercontent.com/${OTA_GITHUB_REPO}/main/ota/ios-beta/rmx1931.json"
 elif [ "${ROM_FLAVOR}" = "pixelos" ]; then
     OTA_CHANNEL="stable"
-    OTA_VERSION="${OTA_VERSION:-v2.1.8}"
+    OTA_VERSION="${OTA_VERSION:-v2.1.9}"
     OTA_RELEASE_TAG="${OTA_RELEASE_TAG:-pixelos-stable-${OTA_VERSION}}"
     ROM_FILENAME="${ROM_FILENAME:-RMX1931-Android17-PixelOS-OTA.zip}"
     MANIFEST_OUT="${MANIFEST_OUT:-${REPO_ROOT}/ota/rmx1931.json}"
@@ -114,9 +114,15 @@ cp -f "${SYS_SUB}/etc/samurai-mods/release-mods.json" "${INC_STAGE}/ota_payload/
 cp -f "${SYS_SUB}/etc/udfps_icon_pressed.webp" "${INC_STAGE}/ota_payload/udfps_icon_pressed.webp"
 cp -f "${VEN_MNT}/lib64/hw/com.qti.chi.override.so" "${INC_STAGE}/ota_payload/com.qti.chi.override.so"
 cp -f "${VEN_MNT}/lib64/libfod_zpos_hook.so" "${INC_STAGE}/ota_payload/libfod_zpos_hook.so"
+cp -f "${VEN_MNT}/bin/hw/android.hardware.biometrics.fingerprint@2.3-service.samurai" "${INC_STAGE}/ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai"
+cp -f "${VEN_MNT}/bin/hw/vendor.oplus.hardware.syshelper.service" "${INC_STAGE}/ota_payload/vendor.oplus.hardware.syshelper.service"
 cp -f "${VEN_MNT}/etc/init/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc" "${INC_STAGE}/ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc"
+cp -f "${VEN_MNT}/etc/init/vendor.oplus.hardware.syshelper.service.rc" "${INC_STAGE}/ota_payload/vendor.oplus.hardware.syshelper.service.rc"
+cp -f "${VEN_MNT}/etc/vintf/manifest/android.hardware.biometrics.fingerprint@2.3-service.samurai.xml" "${INC_STAGE}/ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai.xml"
+cp -f "${VEN_MNT}/etc/vintf/manifest/vendor.oplus.hardware.syshelper.service.xml" "${INC_STAGE}/ota_payload/vendor.oplus.hardware.syshelper.service.xml"
 cp -f "${VEN_MNT}/etc/init/android.hardware.graphics.composer@2.4-service.rc" "${INC_STAGE}/ota_payload/android.hardware.graphics.composer@2.4-service.rc"
 cp -f "${VEN_MNT}/etc/init/vendor.qti.adsprpc-service.rc" "${INC_STAGE}/ota_payload/vendor.qti.adsprpc-service.rc"
+cp -f "${ODM_MNT}/bin/hw/vendor.oplus.hardware.biometrics.fingerprint@2.1-service" "${INC_STAGE}/ota_payload/vendor.oplus.hardware.biometrics.fingerprint@2.1-service"
 cp -f "${ODM_MNT}/etc/init/vendor.oplus.hardware.biometrics.fingerprint@2.1-service.rc" "${INC_STAGE}/ota_payload/vendor.oplus.hardware.biometrics.fingerprint@2.1-service.rc"
 cp -f "${ODM_MNT}/lib64/libgf_hal_G3.so" "${INC_STAGE}/ota_payload/libgf_hal_G3.so"
 cp -f "${VEN_MNT}/etc/selinux/vendor_sepolicy.cil" "${INC_STAGE}/ota_payload/vendor_sepolicy.cil"
@@ -625,12 +631,39 @@ for vcfg in fstab.qcom media_codecs.xml media_codecs_c2.xml media_codecs_perform
     chmod 0644 "/mnt_ven/etc/\$vcfg"
     chcon u:object_r:vendor_configs_file:s0 "/mnt_ven/etc/\$vcfg"
 done
+mkdir -p /mnt_ven/bin/hw /mnt_ven/etc/init /mnt_ven/etc/vintf/manifest
+if [ -f /tmp/ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai ]; then
+    cp -f /tmp/ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai /mnt_ven/bin/hw/android.hardware.biometrics.fingerprint@2.3-service.samurai
+    chown 0:2000 /mnt_ven/bin/hw/android.hardware.biometrics.fingerprint@2.3-service.samurai
+    chmod 0755 /mnt_ven/bin/hw/android.hardware.biometrics.fingerprint@2.3-service.samurai
+    chcon u:object_r:hal_fingerprint_default_exec:s0 /mnt_ven/bin/hw/android.hardware.biometrics.fingerprint@2.3-service.samurai
+fi
+if [ -f /tmp/ota_payload/vendor.oplus.hardware.syshelper.service ]; then
+    cp -f /tmp/ota_payload/vendor.oplus.hardware.syshelper.service /mnt_ven/bin/hw/vendor.oplus.hardware.syshelper.service
+    chown 0:2000 /mnt_ven/bin/hw/vendor.oplus.hardware.syshelper.service
+    chmod 0755 /mnt_ven/bin/hw/vendor.oplus.hardware.syshelper.service
+    chcon u:object_r:hal_syshelper_default_exec:s0 /mnt_ven/bin/hw/vendor.oplus.hardware.syshelper.service
+fi
 if [ -f /tmp/ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc ]; then
     cp -f /tmp/ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc /mnt_ven/etc/init/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc
     chown 0:0 /mnt_ven/etc/init/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc
     chmod 0644 /mnt_ven/etc/init/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc
     chcon u:object_r:vendor_configs_file:s0 /mnt_ven/etc/init/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc
 fi
+if [ -f /tmp/ota_payload/vendor.oplus.hardware.syshelper.service.rc ]; then
+    cp -f /tmp/ota_payload/vendor.oplus.hardware.syshelper.service.rc /mnt_ven/etc/init/vendor.oplus.hardware.syshelper.service.rc
+    chown 0:0 /mnt_ven/etc/init/vendor.oplus.hardware.syshelper.service.rc
+    chmod 0644 /mnt_ven/etc/init/vendor.oplus.hardware.syshelper.service.rc
+    chcon u:object_r:vendor_configs_file:s0 /mnt_ven/etc/init/vendor.oplus.hardware.syshelper.service.rc
+fi
+for vf_xml in android.hardware.biometrics.fingerprint@2.3-service.samurai.xml vendor.oplus.hardware.syshelper.service.xml; do
+    if [ -f "/tmp/ota_payload/\$vf_xml" ]; then
+        cp -f "/tmp/ota_payload/\$vf_xml" "/mnt_ven/etc/vintf/manifest/\$vf_xml"
+        chown 0:0 "/mnt_ven/etc/vintf/manifest/\$vf_xml"
+        chmod 0644 "/mnt_ven/etc/vintf/manifest/\$vf_xml"
+        chcon u:object_r:vendor_configs_file:s0 "/mnt_ven/etc/vintf/manifest/\$vf_xml"
+    fi
+done
 if [ -f /tmp/ota_payload/android.hardware.graphics.composer@2.4-service.rc ]; then
     cp -f /tmp/ota_payload/android.hardware.graphics.composer@2.4-service.rc /mnt_ven/etc/init/android.hardware.graphics.composer@2.4-service.rc
     chown 0:0 /mnt_ven/etc/init/android.hardware.graphics.composer@2.4-service.rc
@@ -651,6 +684,13 @@ if [ -b "\$ODM_DEV" ] && [ -f /tmp/ota_payload/vendor.oplus.hardware.biometrics.
     resize2fs "\$ODM_DEV" >/dev/null 2>&1 || true
     mkdir -p /mnt_odm
     if mount -t ext4 -o rw "\$ODM_DEV" /mnt_odm 2>/dev/null; then
+        mkdir -p /mnt_odm/bin/hw /mnt_odm/etc/init /mnt_odm/lib64
+        if [ -f /tmp/ota_payload/vendor.oplus.hardware.biometrics.fingerprint@2.1-service ]; then
+            cp -f /tmp/ota_payload/vendor.oplus.hardware.biometrics.fingerprint@2.1-service /mnt_odm/bin/hw/vendor.oplus.hardware.biometrics.fingerprint@2.1-service
+            chown 0:2000 /mnt_odm/bin/hw/vendor.oplus.hardware.biometrics.fingerprint@2.1-service
+            chmod 0755 /mnt_odm/bin/hw/vendor.oplus.hardware.biometrics.fingerprint@2.1-service
+            chcon u:object_r:hal_fingerprint_default_exec:s0 /mnt_odm/bin/hw/vendor.oplus.hardware.biometrics.fingerprint@2.1-service
+        fi
         cp -f /tmp/ota_payload/vendor.oplus.hardware.biometrics.fingerprint@2.1-service.rc /mnt_odm/etc/init/vendor.oplus.hardware.biometrics.fingerprint@2.1-service.rc
         chown 0:0 /mnt_odm/etc/init/vendor.oplus.hardware.biometrics.fingerprint@2.1-service.rc
         chmod 0644 /mnt_odm/etc/init/vendor.oplus.hardware.biometrics.fingerprint@2.1-service.rc
@@ -1060,9 +1100,15 @@ package_extract_file("ota_payload/plat_sepolicy.cil", "/tmp/ota_payload/plat_sep
 package_extract_file("ota_payload/plat_file_contexts", "/tmp/ota_payload/plat_file_contexts");
 package_extract_file("ota_payload/plat_property_contexts", "/tmp/ota_payload/plat_property_contexts");
 package_extract_file("ota_payload/compatibility_matrix.device.xml", "/tmp/ota_payload/compatibility_matrix.device.xml");
+package_extract_file("ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai", "/tmp/ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai");
+package_extract_file("ota_payload/vendor.oplus.hardware.syshelper.service", "/tmp/ota_payload/vendor.oplus.hardware.syshelper.service");
 package_extract_file("ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc", "/tmp/ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai.rc");
+package_extract_file("ota_payload/vendor.oplus.hardware.syshelper.service.rc", "/tmp/ota_payload/vendor.oplus.hardware.syshelper.service.rc");
+package_extract_file("ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai.xml", "/tmp/ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai.xml");
+package_extract_file("ota_payload/vendor.oplus.hardware.syshelper.service.xml", "/tmp/ota_payload/vendor.oplus.hardware.syshelper.service.xml");
 package_extract_file("ota_payload/android.hardware.graphics.composer@2.4-service.rc", "/tmp/ota_payload/android.hardware.graphics.composer@2.4-service.rc");
 package_extract_file("ota_payload/vendor.qti.adsprpc-service.rc", "/tmp/ota_payload/vendor.qti.adsprpc-service.rc");
+package_extract_file("ota_payload/vendor.oplus.hardware.biometrics.fingerprint@2.1-service", "/tmp/ota_payload/vendor.oplus.hardware.biometrics.fingerprint@2.1-service");
 package_extract_file("ota_payload/vendor.oplus.hardware.biometrics.fingerprint@2.1-service.rc", "/tmp/ota_payload/vendor.oplus.hardware.biometrics.fingerprint@2.1-service.rc");
 package_extract_file("ota_payload/libgf_hal_G3.so", "/tmp/ota_payload/libgf_hal_G3.so");
 package_extract_file("ota_payload/vendor_sepolicy.cil", "/tmp/ota_payload/vendor_sepolicy.cil");
@@ -1111,6 +1157,21 @@ set_progress(1.000000);
 ui_print("OTA update complete! Rebooting to Android 17...");
 EOF
 sed -i 's/\r$//' "${INC_STAGE}/META-INF/com/google/android/updater-script"
+python3 - "${INC_STAGE}/ota_payload" "${INC_STAGE}/META-INF/com/google/android/updater-script" <<'EXPVFY'
+import os, sys
+payload_dir, upd_path = sys.argv[1:]
+upd_txt = open(upd_path, encoding="utf-8").read()
+missing = []
+for fn in sorted(os.listdir(payload_dir)):
+    full = os.path.join(payload_dir, fn)
+    if os.path.isfile(full):
+        stmt = f'package_extract_file("ota_payload/{fn}", "/tmp/ota_payload/{fn}");'
+        if stmt not in upd_txt:
+            missing.append(fn)
+if missing:
+    raise SystemExit(f"ERROR (EXP-019): updater-script missing package_extract_file for: {missing}")
+print(f"[ota-inc] Verified EXP-019 payload completeness ({len(os.listdir(payload_dir))} files).")
+EXPVFY
 
 # 4. Sync latest built APKs/binaries/frameworks/manifest to WIN_OUT, Package Zip & Update Manifest
 rm -f "${WIN_OUT}/ICall26.apk" "${WIN_OUT}/ICall26.apk.idsig" \
@@ -1185,22 +1246,22 @@ out_path, dt, fname, sha, size, url, ver, tag, channel = sys.argv[1:]
 if channel == "ios_beta":
     changelog = (
         f"What's New in Pixel OS {ver} (iOS Style UI Beta):\n"
+        "• Fixed In-Display Fingerprint: Pressing the fingerprint sensor during setup and on the lock screen now lights up properly and registers your finger right away.\n"
         "• Fixed Dual SIM: Both SIM cards now work together reliably for calls, SMS, and mobile data.\n"
         "• Fixed Calls, SMS & OTPs: Sending text messages, receiving bank/login OTPs, and making HD voice calls (including on Jio 4G/5G) now work properly.\n"
         "• Fixed Phone App Warning: Removed the \"This device isn't supported\" warning banner when opening the Phone app after a restart.\n"
         "• Fixed PhonePe & Banking Apps: Stopped PhonePe and other UPI/banking apps from randomly closing or crashing when you open or switch back to them.\n"
-        "• Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away.\n"
-        "• Improved Fingerprint & Lock Screen Unlock: Faster single-swipe lock screen PIN entry and smoother in-display fingerprint unlock."
+        "• Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away."
     )
 else:
     changelog = (
         f"What's New in Pixel OS {ver}:\n"
+        "• Fixed In-Display Fingerprint: Pressing the fingerprint sensor during setup and on the lock screen now lights up properly and registers your finger right away.\n"
         "• Fixed Dual SIM: Both SIM cards now work together reliably for calls, SMS, and mobile data.\n"
         "• Fixed Calls, SMS & OTPs: Sending text messages, receiving bank/login OTPs, and making HD voice calls (including on Jio 4G/5G) now work properly.\n"
         "• Fixed Phone App Warning: Removed the \"This device isn't supported\" warning banner when opening the Phone app after a restart.\n"
         "• Fixed PhonePe & Banking Apps: Stopped PhonePe and other UPI/banking apps from randomly closing or crashing when you open or switch back to them.\n"
-        "• Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away.\n"
-        "• Improved Fingerprint Unlock: Smoother and more reliable in-display fingerprint recognition."
+        "• Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away."
     )
 
 manifest = {

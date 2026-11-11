@@ -20,10 +20,10 @@ ZIPALIGN="${WORK_ROOT}/tools/android-sdk/build-tools/35.0.0/zipalign"
 
 if [ "${ROM_FLAVOR}" = "ios-beta" ]; then
     EXP_CH="ios_beta"
-    EXP_OTA_VER="${OTA_VERSION:-v2.1.8-b1}"
+    EXP_OTA_VER="${OTA_VERSION:-v2.1.9-b1}"
 elif [ "${ROM_FLAVOR}" = "pixelos" ]; then
     EXP_CH="stable"
-    EXP_OTA_VER="${OTA_VERSION:-v2.1.8}"
+    EXP_OTA_VER="${OTA_VERSION:-v2.1.9}"
 else
     echo "FAIL: Unsupported ROM_FLAVOR=${ROM_FLAVOR}"
     exit 1
@@ -210,6 +210,9 @@ grep -q "^persist.vendor.fingerprint.version=Goodix$" "${SYS_ROOT}/build.prop" |
 [ -f "${MNT_V}/ven/lib64/libfod_zpos_hook.so" ] || { echo "FAIL: Missing /vendor/lib64/libfod_zpos_hook.so!"; exit 1; }
 [ -f "${MNT_V}/ven/lib64/libdisplaydebug.so" ] || { echo "FAIL: Missing /vendor/lib64/libdisplaydebug.so!"; exit 1; }
 cmp -s "${MNT_V}/ven/lib64/libfod_zpos_hook.so" "${MNT_V}/ven/lib64/libdisplaydebug.so" || { echo "FAIL: /vendor/lib64/libdisplaydebug.so does not match libfod_zpos_hook.so!"; exit 1; }
+for fod_sym in _ZN3sdm10HWCDisplay15BuildLayerStackEv _ZN3sdm10HWCDisplay15CanSkipValidateEv drmModeAtomicAddProperty drmModeAtomicCommit; do
+    readelf -Ws "${MNT_V}/ven/lib64/libfod_zpos_hook.so" | grep -q "${fod_sym}" || { echo "FAIL: libfod_zpos_hook.so missing exported symbol ${fod_sym}!"; exit 1; }
+done
 python3 - "${MNT_V}/odm/lib64/libgf_hal_G3.so" <<'GFVFY'
 import struct, sys
 b = open(sys.argv[1], "rb").read()
@@ -714,6 +717,17 @@ with zipfile.ZipFile(bridge_zip, "r") as zf:
     assert "ota_payload/android.hardware.graphics.composer@2.4-service.rc" in names, "Bridge OTA missing composer 2.4 rc!"
     assert "ota_payload/libfod_zpos_hook.so" in names, "Bridge OTA missing libfod_zpos_hook.so!"
     assert "ota_payload/libgf_hal_G3.so" in names, "Bridge OTA missing libgf_hal_G3.so!"
+    assert "ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai" in names, "Bridge OTA missing fp 2.3 binary!"
+    assert "ota_payload/vendor.oplus.hardware.syshelper.service" in names, "Bridge OTA missing syshelper binary!"
+    assert "ota_payload/vendor.oplus.hardware.syshelper.service.rc" in names, "Bridge OTA missing syshelper rc!"
+    assert "ota_payload/android.hardware.biometrics.fingerprint@2.3-service.samurai.xml" in names, "Bridge OTA missing fp 2.3 VINTF xml!"
+    assert "ota_payload/vendor.oplus.hardware.syshelper.service.xml" in names, "Bridge OTA missing syshelper VINTF xml!"
+    assert "ota_payload/vendor.oplus.hardware.biometrics.fingerprint@2.1-service" in names, "Bridge OTA missing odm fp 2.1 binary!"
+    for zn in sorted(names):
+        if zn.startswith("ota_payload/") and not zn.endswith("/"):
+            rel_p = zn[len("ota_payload/"):]
+            exp_ext = f'package_extract_file("ota_payload/{rel_p}", "/tmp/ota_payload/{rel_p}");'
+            assert exp_ext in updater_sc, f"EXP-019 violation: Bridge OTA updater-script missing {exp_ext}"
     assert "/mnt_ven/lib64/libdisplaydebug.so" in apply_sh, "Bridge OTA apply_ota.sh missing libdisplaydebug.so install!"
     assert "ota_payload/udfps_icon_pressed.webp" in names, "Bridge OTA missing udfps_icon_pressed.webp!"
     assert "ota_payload/vendor_sepolicy.cil" in names, "Bridge OTA missing vendor_sepolicy.cil!"
@@ -782,7 +796,7 @@ for st_path in (stable_json, root_json):
     st_e = json.load(open(st_path, encoding="utf-8"))["response"][0]
     assert (
         st_e["channel"] == "stable"
-        and st_e["version"] == "v2.1.8"
+        and st_e["version"] == "v2.1.9"
         and st_e["sha256"] == EXPECTED_STABLE_SHA
         and st_e["id"] == EXPECTED_STABLE_SHA
     ), f"Stable manifest {st_path} mismatch during ios-beta build: {st_e}"
@@ -795,12 +809,17 @@ digest = h.hexdigest()
 assert e_beta["sha256"] == digest and e_beta["id"] == digest, "SHA-256 mismatch in ota/ios-beta/rmx1931.json!"
 with zipfile.ZipFile(beta_zip, "r") as zf:
     bnames = set(zf.namelist())
-    for req_ios in ("IosStyler.apk", "IosSettings.apk", "IosControlCenter.apk", "IosDialer.apk", "IosMessages.apk", "privapp-permissions-ios-dialer.xml", "privapp-permissions-ios-messages.xml", "SamuraiLauncherOverlay.apk", "SamuraiIos26WallpaperOverlay.apk", "SamuraiTelephonyOverlay.apk", "qti_ims_telephony.tar.gz", "qti_ims_fixperms.sh", "NexusLauncherRelease.apk", "fstab.qcom", "compatibility_matrix.device.xml", "android.hardware.biometrics.fingerprint@2.3-service.samurai.rc", "android.hardware.graphics.composer@2.4-service.rc", "libfod_zpos_hook.so", "libgf_hal_G3.so", "udfps_icon_pressed.webp", "vendor_sepolicy.cil"):
+    for req_ios in ("IosStyler.apk", "IosSettings.apk", "IosControlCenter.apk", "IosDialer.apk", "IosMessages.apk", "privapp-permissions-ios-dialer.xml", "privapp-permissions-ios-messages.xml", "SamuraiLauncherOverlay.apk", "SamuraiIos26WallpaperOverlay.apk", "SamuraiTelephonyOverlay.apk", "qti_ims_telephony.tar.gz", "qti_ims_fixperms.sh", "NexusLauncherRelease.apk", "fstab.qcom", "compatibility_matrix.device.xml", "android.hardware.biometrics.fingerprint@2.3-service.samurai", "vendor.oplus.hardware.syshelper.service", "vendor.oplus.hardware.syshelper.service.rc", "android.hardware.biometrics.fingerprint@2.3-service.samurai.xml", "vendor.oplus.hardware.syshelper.service.xml", "vendor.oplus.hardware.biometrics.fingerprint@2.1-service", "android.hardware.biometrics.fingerprint@2.3-service.samurai.rc", "android.hardware.graphics.composer@2.4-service.rc", "libfod_zpos_hook.so", "libgf_hal_G3.so", "udfps_icon_pressed.webp", "vendor_sepolicy.cil"):
         assert f"ota_payload/{req_ios}" in bnames, f"iOS Beta OTA missing ota_payload/{req_ios}!"
     for retired_ios in ("ICall26.apk", "SamuraiICallOverlay.apk"):
         assert f"ota_payload/{retired_ios}" not in bnames, f"iOS Beta OTA still contains retired {retired_ios}!"
     apply_sh = zf.read("ota_payload/apply_ota.sh").decode("utf-8")
     b_upd = zf.read("META-INF/com/google/android/updater-script").decode("utf-8")
+    for zn in sorted(bnames):
+        if zn.startswith("ota_payload/") and not zn.endswith("/"):
+            rel_p = zn[len("ota_payload/"):]
+            exp_ext = f'package_extract_file("ota_payload/{rel_p}", "/tmp/ota_payload/{rel_p}");'
+            assert exp_ext in b_upd, f"EXP-019 violation: iOS Beta OTA updater-script missing {exp_ext}"
     b_fstab = zf.read("ota_payload/fstab.qcom").decode("utf-8")
     assert "ext4" in b_fstab and "f2fs" in b_fstab and "checkpoint=fs" in b_fstab, "iOS Beta OTA fstab.qcom missing dual ext4+f2fs /data!"
     assert "E1002:" in b_upd and b_upd.index("E1002:") < b_upd.index("delete_recursive"), "iOS Beta OTA updater-script missing E1002 pre-flight guard!"

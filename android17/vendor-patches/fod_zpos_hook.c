@@ -3,6 +3,12 @@
  *
  * Pure freestanding Android Bionic LP64 (aarch64-linux-android) library for
  * Android 17 ROM rebuilds.
+ *
+ * Strictly promotes ONLY the 204x204 (200..208px) calibrated warm-amber lightspot
+ * plane at sensor center (540, 2156) to FOD_PRESSED_LAYER_ZORDER (0x20000000ULL),
+ * avoiding all 190x190 transparent SystemUI/Settings planes and keeping
+ * /sys/kernel/oppo_display/notify_fppress synchronized across every tap without
+ * background-thread clobbering or drm_modeset_lock_all deadlocks.
  */
 
 /* Android Bionic LP64 (aarch64) standard fixed-width & POSIX ABI types */
@@ -43,7 +49,6 @@ extern int open(const char *pathname, int flags, ...);
 extern ssize_t read(int fd, void *buf, size_t count);
 extern ssize_t write(int fd, const void *buf, size_t count);
 extern int close(int fd);
-extern int clock_gettime(int clk_id, struct timespec *tp);
 extern int nanosleep(const struct timespec *req, struct timespec *rem);
 extern int pthread_mutex_lock(bionic_mutex_t *mutex);
 extern int pthread_mutex_unlock(bionic_mutex_t *mutex);
@@ -59,7 +64,6 @@ extern int pthread_detach(pthread_t thread);
 #define OPPO_DIMLAYER_HBM_PATH    "/sys/kernel/oppo_display/dimlayer_hbm"
 #define OPPO_NOTIFY_FPPRESS_PATH  "/sys/kernel/oppo_display/notify_fppress"
 #define OPPO_FP_STATE_PATH        "/sys/kernel/oppo_display/fp_state"
-#define OPPO_HBM_PATH             "/sys/kernel/oppo_display/hbm"
 
 /* Provide display::DebugHandler symbols for SDM display composer compatibility */
 static void _samurai_dbg_noop(void) {}
@@ -154,6 +158,7 @@ typedef struct {
     uint64_t base_zpos;
     uint64_t cur_fb_id;
     uint64_t cur_crtc_id;
+    uint64_t prev_crtc_id;
     int32_t  cur_x;
     int32_t  cur_y;
     uint32_t cur_w;
@@ -187,9 +192,9 @@ static pfn_HWCDisplay_CanSkipValidate real_HWCDisplay_CanSkipValidate = NULL;
 static void *g_refresh_cb_data = NULL;
 static pfn_HWC2_Refresh g_refresh_cb_fn = NULL;
 static int g_watcher_started = 0;
-static volatile int64_t g_fppress_start_ms = 0;
 static volatile int g_fod_force_validate_frames = 0;
-static int g_last_fppress_notified = 0;
+static volatile int g_lightspot_committed = 0;
+static int g_prev_had_fod_layer = 0;
 
 static int str_eq(const char *a, const char *b) {
     while (*a && *b) {
@@ -207,14 +212,6 @@ static void zero_mem(void *ptr, size_t n) {
     for (size_t i = 0; i < n; i++) {
         p[i] = 0;
     }
-}
-
-static int64_t now_monotonic_ms(void) {
-    struct timespec ts;
-    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
-        return 0;
-    }
-    return ((int64_t)ts.tv_sec * 1000LL) + ((int64_t)ts.tv_nsec / 1000000LL);
 }
 
 static void sleep_ms(int ms) {
@@ -265,8 +262,6 @@ static void write_sysfs_zero(const char *path) {
 /*
  * Reads /sys/kernel/oppo_display/fp_state ("X,Y,touch_state\n" emitted by
  * oppo_display_get_fp_state in oppo_onscreenfingerprint.c).
- * Note: /sys/kernel/oppo_display/notify_fppress is write-only in the RMX1931 kernel
- * (no .show callback), so reading notify_fppress always returns 0 bytes.
  */
 static int read_fp_touch_state(void) {
     int fd = open(OPPO_FP_STATE_PATH, O_RDONLY | O_CLOEXEC);
@@ -300,16 +295,50 @@ static int read_fp_touch_state(void) {
     return 0;
 }
 
-static void sync_notify_fppress(int fppress) {
-    if (fppress != g_last_fppress_notified) {
-        g_last_fppress_notified = fppress;
-        if (fppress) {
-            write_sysfs_one(OPPO_DIMLAYER_HBM_PATH);
-            write_sysfs_one(OPPO_NOTIFY_FPPRESS_PATH);
-        } else {
-            write_sysfs_zero(OPPO_NOTIFY_FPPRESS_PATH);
-        }
+/*
+ * Exact 4-rotation sensor coordinate matcher for the 204x204 pressed lightspot
+ * centered at physical (540, 2156) on 1080x2400:
+ *   0 deg   : (438, 2054) -> x in [400..480],   y in [2010..2100]
+ *   90 deg  : (2054, 438) -> x in [2010..2100], y in [400..480]
+ *   180 deg : (438, 142)  -> x in [400..480],   y in [100..190]
+ *   270 deg : (142, 438)  -> x in [100..190],   y in [400..480]
+ */
+static int is_fod_sensor_xy(int32_t x, int32_t y) {
+    if (x >= 400 && x <= 480 && y >= 2010 && y <= 2100) {
+        return 1;
     }
+    if (x >= 2010 && x <= 2100 && y >= 400 && y <= 480) {
+        return 1;
+    }
+    if (x >= 400 && x <= 480 && y >= 100 && y <= 190) {
+        return 1;
+    }
+    if (x >= 100 && x <= 190 && y >= 400 && y <= 480) {
+        return 1;
+    }
+    return 0;
+}
+
+static int is_lightspot_204_plane(const plane_track_t *p) {
+    int match_crtc = (p->cur_w >= 200U && p->cur_w <= 208U &&
+                      p->cur_h >= 200U && p->cur_h <= 208U);
+    int match_src  = (p->cur_src_w >= 200U && p->cur_src_w <= 208U &&
+                      p->cur_src_h >= 200U && p->cur_src_h <= 208U);
+    if (!match_crtc && !match_src) {
+        return 0;
+    }
+    return is_fod_sensor_xy(p->cur_x, p->cur_y);
+}
+
+static int is_lightspot_204_float(float left, float top, float right, float bottom) {
+    float w = right - left;
+    float h = bottom - top;
+    if (w < 200.0f || w > 208.0f || h < 200.0f || h > 208.0f) {
+        return 0;
+    }
+    int32_t x = (int32_t)(left + 0.5f);
+    int32_t y = (int32_t)(top + 0.5f);
+    return is_fod_sensor_xy(x, y);
 }
 
 static void resolve_drm_symbols_locked(void) {
@@ -382,6 +411,7 @@ static void init_drm_planes_locked(int fd) {
             } else if (str_eq(prop->name, "CRTC_ID")) {
                 p->crtc_id_prop = prop->prop_id;
                 p->cur_crtc_id = val;
+                p->prev_crtc_id = val;
                 if (val != 0 && g_primary_crtc_id == 0) {
                     g_primary_crtc_id = (uint32_t)val;
                 }
@@ -425,41 +455,39 @@ static void trigger_hwc_refresh(void) {
     }
 }
 
+/*
+ * Non-destructive HWC refresh helper on dimlayer_hbm / fp_state edge transitions.
+ * CRITICAL: Never write "0" to notify_fppress here! Writing "0" while the 204x204
+ * lightspot is active sets oppo_onscreenfp_status = 0 in the kernel, which causes
+ * sde_crtc.c:5508 to set sde_pstate->is_skip = true and aborts GF_NET_EVENT_UI_READY.
+ */
 static void *fod_watcher_thread(void *arg) {
     (void)arg;
-    int last_fppress = 0;
+    int last_dimlayer = 0;
+    int last_fp_touch = 0;
     int followup_refreshes = 0;
 
     for (;;) {
         int dimlayer = read_sysfs_int(OPPO_DIMLAYER_HBM_PATH);
         int fp_touch = read_fp_touch_state();
-        int fppress = fp_touch;
 
-        if (fppress && !dimlayer) {
-            write_sysfs_one(OPPO_DIMLAYER_HBM_PATH);
-            dimlayer = 1;
-        }
-        sync_notify_fppress(fppress);
-
-        if (fppress != last_fppress) {
-            if (fppress) {
-                g_fppress_start_ms = now_monotonic_ms();
-            } else {
-                g_fppress_start_ms = 0;
-            }
-            last_fppress = fppress;
+        if (dimlayer != last_dimlayer || fp_touch != last_fp_touch) {
+            last_dimlayer = dimlayer;
+            last_fp_touch = fp_touch;
+            pthread_mutex_lock(&g_lock);
             g_fod_force_validate_frames = 6;
-            followup_refreshes = 4;
+            pthread_mutex_unlock(&g_lock);
+            followup_refreshes = 3;
             trigger_hwc_refresh();
         } else if (followup_refreshes > 0) {
             followup_refreshes--;
             trigger_hwc_refresh();
         }
 
-        if (dimlayer || fppress || followup_refreshes > 0) {
-            sleep_ms(6);
+        if (dimlayer || fp_touch || followup_refreshes > 0) {
+            sleep_ms(16);
         } else {
-            sleep_ms(120);
+            sleep_ms(150);
         }
     }
     return NULL;
@@ -500,8 +528,8 @@ int32_t _ZN3sdm12HWCCallbacks8RegisterEN4HWC28CallbackEPvPFvvE(
 
 /*
  * Intercepts sdm::HWCDisplay::CanSkipValidate() so SDM never skips Validate() while an
- * optical UDFPS press is active or transitioning, ensuring HWCDisplay::BuildLayerStack()
- * and HWDevice::Validate() assign a dedicated hardware SDE overlay pipe to the lightspot.
+ * optical UDFPS session/lightspot is active or transitioning, ensuring BuildLayerStack()
+ * and HWDevice::Validate() assign a dedicated hardware SDE overlay pipe to the 204x204 lightspot.
  */
 __attribute__((visibility("default")))
 int32_t _ZN3sdm10HWCDisplay15CanSkipValidateEv(void *this_ptr) {
@@ -511,7 +539,7 @@ int32_t _ZN3sdm10HWCDisplay15CanSkipValidateEv(void *this_ptr) {
                 RTLD_NEXT, "_ZN3sdm10HWCDisplay15CanSkipValidateEv");
     }
     pfn_HWCDisplay_CanSkipValidate fn = real_HWCDisplay_CanSkipValidate;
-    int force_validate = (g_fod_force_validate_frames > 0 || g_fppress_start_ms != 0);
+    int force_validate = (g_fod_force_validate_frames > 0 || g_lightspot_committed != 0);
     if (g_fod_force_validate_frames > 0) {
         g_fod_force_validate_frames--;
     }
@@ -529,16 +557,10 @@ int32_t _ZN3sdm10HWCDisplay15CanSkipValidateEv(void *this_ptr) {
 /*
  * Intercepts sdm::HWCDisplay::BuildLayerStack() in hwcomposer.qcom.so.
  *
- * Before BuildLayerStack() runs:
- *   Iterates the std::multiset<HWCLayer*> at HWCDisplay+0xA8..0xB0:
- *     - Each RB-tree node has HWCLayer* at node + 0x20.
- *     - Each HWCLayer has sdm::Layer* at hwc_layer + 0x00, geometry_changes at +0x90,
- *       and is_fod_pressed_layer bool at +0x82.
- *     - Each sdm::Layer has dst_rect (float left, top, right, bottom) at sdm_layer + 0xB9C..0xBA8.
- *   When a 186..196 px optical UDFPS lightspot layer is present in the lower sensor area
- *   (or fp_state touch_state == 1), sets hwc_layer->[+0x82] = 1 and marks geometry_changes
- *   (|= 0x080) so BuildLayerStack() sets sdm_layer->[+0xC18] bit 6 and HWDevice::Validate()
- *   allocates a dedicated hardware SDE plane for the lightspot instead of GPU-compositing it!
+ * Marks ONLY the 204x204 (200..208px) warm-amber optical lightspot layer at sensor
+ * coordinates with hwc_layer[0x82] = 1 and geometry_changes |= 0x080U so SDM allocates
+ * a dedicated SDE hardware overlay plane instead of GPU-compositing it, while leaving
+ * all 190x190 transparent SystemUI/Settings UI layers untouched.
  */
 __attribute__((visibility("default")))
 int32_t _ZN3sdm10HWCDisplay15BuildLayerStackEv(void *this_ptr) {
@@ -550,7 +572,6 @@ int32_t _ZN3sdm10HWCDisplay15BuildLayerStackEv(void *this_ptr) {
     pfn_HWCDisplay_BuildLayerStack fn = real_HWCDisplay_BuildLayerStack;
     pthread_mutex_unlock(&g_lock);
 
-    int fp_touch = read_fp_touch_state();
     int found_fod_layer = 0;
 
     if (this_ptr != NULL) {
@@ -569,16 +590,10 @@ int32_t _ZN3sdm10HWCDisplay15BuildLayerStackEv(void *this_ptr) {
                     float top    = *(float *)(sdm_layer + 0xBA0);
                     float right  = *(float *)(sdm_layer + 0xBA4);
                     float bottom = *(float *)(sdm_layer + 0xBA8);
-                    float w = right - left;
-                    float h = bottom - top;
-                    if (w >= 184.0f && w <= 198.0f && h >= 184.0f && h <= 198.0f && top >= 1900.0f) {
-                        is_fod_rect = 1;
-                    } else if (w >= 184.0f && w <= 198.0f && h >= 184.0f && h <= 198.0f && left >= 1900.0f) {
-                        is_fod_rect = 1;
-                    }
+                    is_fod_rect = is_lightspot_204_float(left, top, right, bottom);
                 }
                 uint8_t prev_flag = hwc_layer[0x82];
-                uint8_t new_flag = (is_fod_rect && fp_touch) ? 1 : (is_fod_rect ? 1 : 0);
+                uint8_t new_flag = is_fod_rect ? 1 : 0;
                 if (is_fod_rect) {
                     found_fod_layer = 1;
                 }
@@ -612,9 +627,12 @@ int32_t _ZN3sdm10HWCDisplay15BuildLayerStackEv(void *this_ptr) {
         }
     }
 
-    if (found_fod_layer || fp_touch) {
-        sync_notify_fppress(1);
+    pthread_mutex_lock(&g_lock);
+    if (found_fod_layer || g_prev_had_fod_layer) {
+        g_fod_force_validate_frames = 6;
     }
+    g_prev_had_fod_layer = found_fod_layer;
+    pthread_mutex_unlock(&g_lock);
 
     if (fn) {
         return fn(this_ptr);
@@ -645,6 +663,7 @@ int drmModeAtomicAddProperty(
             } else if (property_id == p->fb_id_prop) {
                 p->cur_fb_id = value;
             } else if (property_id == p->crtc_id_prop) {
+                p->prev_crtc_id = p->cur_crtc_id;
                 p->cur_crtc_id = value;
                 if (value != 0 && g_primary_crtc_id == 0) {
                     g_primary_crtc_id = (uint32_t)value;
@@ -685,22 +704,44 @@ int drmModeAtomicCommit(int fd, drmModeAtomicReqPtr req, uint32_t flags, void *u
     pfn_drmModeAtomicAddProperty add_fn = real_drmModeAtomicAddProperty;
     pfn_drmModeAtomicCommit commit_fn = real_drmModeAtomicCommit;
 
+    int is_test_only = (flags & DRM_MODE_ATOMIC_TEST_ONLY) != 0;
+    int ensure_fppress_on = 0;
+    int notify_fppress_off = 0;
+
     if (g_planes_initialized && req != NULL && add_fn != NULL) {
         int any_plane_touched = 0;
+        int primary_plane_touched = 0;
         for (int i = 0; i < g_num_planes; i++) {
-            if (g_planes[i].touched_in_req) {
+            plane_track_t *p = &g_planes[i];
+            if (p->touched_in_req) {
                 any_plane_touched = 1;
-                break;
+                if (g_primary_crtc_id == 0 ||
+                    p->cur_crtc_id == g_primary_crtc_id ||
+                    p->prev_crtc_id == g_primary_crtc_id) {
+                    primary_plane_touched = 1;
+                }
             }
         }
 
-        if (any_plane_touched) {
+        if (any_plane_touched && !primary_plane_touched) {
+            /* Non-primary (virtual/writeback) display commit: flush deferred zpos untouched */
+            for (int i = 0; i < g_num_planes; i++) {
+                plane_track_t *p = &g_planes[i];
+                if (p->zpos_pending_in_req) {
+                    add_fn(req, p->plane_id, p->zpos_prop, p->base_zpos);
+                }
+                p->zpos_pending_in_req = 0;
+                p->touched_in_req = 0;
+                if (!is_test_only) {
+                    p->prev_crtc_id = p->cur_crtc_id;
+                }
+            }
+        } else if (primary_plane_touched) {
             /*
-             * Check if either:
-             *   (a) Synaptics touchpanel fp_state reports finger down (touch_state == 1), OR
-             *   (b) A 190x190 / 192x192 optical UDFPS lightspot plane is actively bound to our CRTC.
+             * Strictly match ONLY the 204x204 (200..208px) warm-amber optical lightspot plane
+             * bound to the primary DSI CRTC at sensor coordinates. Zero fallback matchers.
              */
-            plane_track_t *candidate_190 = NULL;
+            plane_track_t *candidate_204 = NULL;
             for (int i = 0; i < g_num_planes; i++) {
                 plane_track_t *p = &g_planes[i];
                 if (p->cur_fb_id == 0 || p->cur_crtc_id == 0) {
@@ -709,93 +750,16 @@ int drmModeAtomicCommit(int fd, drmModeAtomicReqPtr req, uint32_t flags, void *u
                 if (g_primary_crtc_id != 0 && p->cur_crtc_id != g_primary_crtc_id) {
                     continue;
                 }
-                int match_crtc = (p->cur_w >= 186 && p->cur_w <= 196 && p->cur_h >= 186 && p->cur_h <= 196);
-                int match_src  = (p->cur_src_w >= 186 && p->cur_src_w <= 196 && p->cur_src_h >= 186 && p->cur_src_h <= 196);
-                if ((match_crtc || match_src) && (p->cur_y >= 1900 || p->cur_x >= 1900)) {
-                    if (!candidate_190 || p->base_zpos >= candidate_190->base_zpos) {
-                        candidate_190 = p;
+                if (is_lightspot_204_plane(p)) {
+                    if (!candidate_204 || p->base_zpos >= candidate_204->base_zpos) {
+                        candidate_204 = p;
                     }
                 }
             }
 
-            int fp_touch = read_fp_touch_state();
-            int fppress = (fp_touch || candidate_190 != NULL) ? 1 : 0;
-            sync_notify_fppress(fppress);
-
-            if (fppress) {
-                if (g_fppress_start_ms == 0) {
-                    g_fppress_start_ms = now_monotonic_ms();
-                }
-                if (!read_sysfs_int(OPPO_DIMLAYER_HBM_PATH)) {
-                    write_sysfs_one(OPPO_DIMLAYER_HBM_PATH);
-                }
-            } else {
-                g_fppress_start_ms = 0;
-            }
-
-            plane_track_t *fod_plane = candidate_190;
-            if (fppress && !fod_plane) {
-                /*
-                 * Priority 1b: Rotated or slightly scaled FOD lightspot plane ([160..220]).
-                 */
-                for (int i = 0; i < g_num_planes; i++) {
-                    plane_track_t *p = &g_planes[i];
-                    if (p->cur_fb_id == 0 || p->cur_crtc_id == 0) {
-                        continue;
-                    }
-                    if (g_primary_crtc_id != 0 && p->cur_crtc_id != g_primary_crtc_id) {
-                        continue;
-                    }
-                    if (p->cur_w >= 160 && p->cur_w <= 220 && p->cur_h >= 160 && p->cur_h <= 220) {
-                        if (!fod_plane || p->base_zpos >= fod_plane->base_zpos) {
-                            fod_plane = p;
-                        }
-                    }
-                }
-
-                /*
-                 * Priority 2: Fallback to highest-zpos non-fullscreen overlay plane, or highest
-                 * zpos plane if SDM composited into the top plane after >= 25ms.
-                 */
-                if (!fod_plane) {
-                    for (int i = 0; i < g_num_planes; i++) {
-                        plane_track_t *p = &g_planes[i];
-                        if (p->cur_fb_id == 0 || p->cur_crtc_id == 0) {
-                            continue;
-                        }
-                        if (g_primary_crtc_id != 0 && p->cur_crtc_id != g_primary_crtc_id) {
-                            continue;
-                        }
-                        if (p->cur_w > 0 && p->cur_h > 0 && !(p->cur_w >= 1080 && p->cur_h >= 2300)) {
-                            if (!fod_plane || p->base_zpos >= fod_plane->base_zpos) {
-                                fod_plane = p;
-                            }
-                        }
-                    }
-                }
-                if (!fod_plane) {
-                    int64_t elapsed = now_monotonic_ms() - g_fppress_start_ms;
-                    if (elapsed >= 25) {
-                        for (int i = 0; i < g_num_planes; i++) {
-                            plane_track_t *p = &g_planes[i];
-                            if (p->cur_fb_id == 0 || p->cur_crtc_id == 0) {
-                                continue;
-                            }
-                            if (g_primary_crtc_id != 0 && p->cur_crtc_id != g_primary_crtc_id) {
-                                continue;
-                            }
-                            if (!fod_plane || p->base_zpos >= fod_plane->base_zpos) {
-                                fod_plane = p;
-                            }
-                        }
-                    }
-                }
-            }
-
-            int is_test_only = (flags & DRM_MODE_ATOMIC_TEST_ONLY) != 0;
             for (int i = 0; i < g_num_planes; i++) {
                 plane_track_t *p = &g_planes[i];
-                if (p == fod_plane) {
+                if (p == candidate_204) {
                     add_fn(req, p->plane_id, p->zpos_prop, p->base_zpos | FOD_PRESSED_BIT);
                     if (!is_test_only) {
                         p->fod_tagged = 1;
@@ -808,13 +772,44 @@ int drmModeAtomicCommit(int fd, drmModeAtomicReqPtr req, uint32_t flags, void *u
                 }
                 p->zpos_pending_in_req = 0;
                 p->touched_in_req = 0;
+                if (!is_test_only) {
+                    p->prev_crtc_id = p->cur_crtc_id;
+                }
+            }
+
+            if (!is_test_only) {
+                if (candidate_204 != NULL) {
+                    ensure_fppress_on = 1;
+                    g_lightspot_committed = 1;
+                } else if (g_lightspot_committed) {
+                    g_lightspot_committed = 0;
+                    notify_fppress_off = 1;
+                }
             }
         }
     }
     pthread_mutex_unlock(&g_lock);
 
-    if (commit_fn) {
-        return commit_fn(fd, req, flags, user_data);
+    /*
+     * Perform sysfs notifications strictly outside g_lock (and never on TEST_ONLY commits),
+     * because oppo_display_notify_fp_press acquires drm_modeset_lock_all on 0<->1 edges
+     * (and is a lockless 2-instruction no-op when oppo_onscreenfp_status already matches).
+     */
+    if (ensure_fppress_on) {
+        if (!read_sysfs_int(OPPO_DIMLAYER_HBM_PATH)) {
+            write_sysfs_one(OPPO_DIMLAYER_HBM_PATH);
+        }
+        write_sysfs_one(OPPO_NOTIFY_FPPRESS_PATH);
     }
-    return -1;
+
+    int ret = -1;
+    if (commit_fn) {
+        ret = commit_fn(fd, req, flags, user_data);
+    }
+
+    if (notify_fppress_off) {
+        write_sysfs_zero(OPPO_NOTIFY_FPPRESS_PATH);
+    }
+
+    return ret;
 }

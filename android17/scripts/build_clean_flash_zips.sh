@@ -37,13 +37,13 @@ done
 
 if [ "${ROM_FLAVOR}" = "ios-beta" ]; then
     SYSTEM_ONLY=1
-    OTA_VERSION="${OTA_VERSION:-v2.1.7-b1}"
+    OTA_VERSION="${OTA_VERSION:-v2.1.9-b1}"
     OTA_RELEASE_TAG="${OTA_RELEASE_TAG:-ios-beta-${OTA_VERSION}}"
     SYS_FILENAME="${SYS_FILENAME:-RMX1931-Android17-iOSBeta-System-${OTA_VERSION}.zip}"
     OTA_CHANNEL="ios_beta"
     MANIFEST_OUT="${REPO_ROOT}/ota/ios-beta/rmx1931.json"
 elif [ "${ROM_FLAVOR}" = "pixelos" ]; then
-    OTA_VERSION="${OTA_VERSION:-v2.1.7}"
+    OTA_VERSION="${OTA_VERSION:-v2.1.9}"
     OTA_RELEASE_TAG="${OTA_RELEASE_TAG:-pixelos-stable-${OTA_VERSION}}"
     SYS_FILENAME="${SYS_FILENAME:-RMX1931-Android17-PixelOS-System.zip}"
     OTA_CHANNEL="stable"
@@ -273,17 +273,23 @@ import json, sys
 out_path, dt, fname, sha, size, url, ver, tag, channel = sys.argv[1:]
 if channel == "ios_beta":
     changelog = (
-        f"Pixel OS {ver} — Opt-In iOS Style UI Beta on Android 17 for Realme X2 Pro (RMX1931)\n"
-        "• Optical UDFPS Registration & Calibration Fix (Goodix G3 / GF9500): enabled Goodix G3 SPMT panel calibration compatibility in /odm/lib64/libgf_hal_G3.so (vendor.fingerprint.cali=1), linked SDM/DRM FOD plane promotion directly into composer@2.4-service via /vendor/lib64/libdisplaydebug.so with live /sys/kernel/oppo_display/fp_state touch-state tracking, and gated the 190x190 optical lightspot overlay strictly to finger press\n"
-        "• Full Android 17 Developer Options Launcher in iOS Settings: added 'Open Full Android Developer Options' at the top of Developer Options in IosSettings so users can access all 80+ native Android 17 Developer Options alongside the iOS quick toggles\n"
-        "• Direct Single-Swipe Primary Bouncer Unlock + Single-Press Optical UDFPS Aperture (IosControlCenter v1.7.7-ios26) & 90Hz AGSL Liquid Glass Sheets"
+        f"What's New in Pixel OS {ver} (iOS Style UI Beta):\n"
+        "• Fixed In-Display Fingerprint: Pressing the fingerprint sensor during setup and on the lock screen now lights up properly and registers your finger right away.\n"
+        "• Fixed Dual SIM: Both SIM cards now work together reliably for calls, SMS, and mobile data.\n"
+        "• Fixed Calls, SMS & OTPs: Sending text messages, receiving bank/login OTPs, and making HD voice calls (including on Jio 4G/5G) now work properly.\n"
+        "• Fixed Phone App Warning: Removed the \"This device isn't supported\" warning banner when opening the Phone app after a restart.\n"
+        "• Fixed PhonePe & Banking Apps: Stopped PhonePe and other UPI/banking apps from randomly closing or crashing when you open or switch back to them.\n"
+        "• Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away."
     )
 else:
     changelog = (
-        f"Pixel OS {ver} — Pure Retail Google PixelOS Stable for Realme X2 Pro (RMX1931)\n"
-        "• Optical UDFPS Registration & Calibration Fix (Goodix G3 / GF9500): enabled Goodix G3 SPMT panel calibration compatibility in /odm/lib64/libgf_hal_G3.so (vendor.fingerprint.cali=1), linked SDM/DRM FOD plane promotion directly into composer@2.4-service via /vendor/lib64/libdisplaydebug.so with live /sys/kernel/oppo_display/fp_state touch-state tracking, and gated the 190x190 optical lightspot overlay strictly to finger press\n"
-        "• Dual EXT4 + F2FS /data Support Out of the Box & Clean-Flash Bootloader-Loop Fix: restored native F2FS + EXT4 /data mounting in /vendor/etc/fstab.qcom, clean /metadata ext4 formatting & matched Flags=3 vbmeta.img in VendorBoot.zip\n"
-        "• Out-of-the-Box 4K 60fps & 1080p 60fps Hardware Gyro-EIS3 Video Stabilization + 100% Pure Google PixelOS Experience on Default Stable Channel"
+        f"What's New in Pixel OS {ver}:\n"
+        "• Fixed In-Display Fingerprint: Pressing the fingerprint sensor during setup and on the lock screen now lights up properly and registers your finger right away.\n"
+        "• Fixed Dual SIM: Both SIM cards now work together reliably for calls, SMS, and mobile data.\n"
+        "• Fixed Calls, SMS & OTPs: Sending text messages, receiving bank/login OTPs, and making HD voice calls (including on Jio 4G/5G) now work properly.\n"
+        "• Fixed Phone App Warning: Removed the \"This device isn't supported\" warning banner when opening the Phone app after a restart.\n"
+        "• Fixed PhonePe & Banking Apps: Stopped PhonePe and other UPI/banking apps from randomly closing or crashing when you open or switch back to them.\n"
+        "• Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away."
     )
 
 manifest = {

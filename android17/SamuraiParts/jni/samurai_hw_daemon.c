@@ -48,6 +48,7 @@
 #define PANEL_BL_PATH       "/sys/class/backlight/panel0-backlight/brightness"
 #define OPPO_HBM_PATH       "/sys/kernel/oppo_display/hbm"
 #define OPPO_FPPRESS_PATH   "/sys/kernel/oppo_display/notify_fppress"
+#define OPPO_FP_STATE_PATH  "/sys/kernel/oppo_display/fp_state"
 #define OPPO_DIMLAYER_PATH  "/sys/kernel/oppo_display/dimlayer_hbm"
 #define OPPO_FP_ENABLE_PATH "/proc/touchpanel/fp_enable"
 
@@ -496,8 +497,21 @@ static void disable_hbm_and_restore_backlight(void) {
  * saturates. Instead, sde_crtc.c + sde_connector_update_hbm drive FOD HBM and the SDE
  * dim layer automatically via dimlayer_hbm + FOD_PRESSED_LAYER_ZORDER (0x20000000u).
  */
+static long long read_fp_state_touch(void) {
+    char buf[64];
+    if (!read_str_file(OPPO_FP_STATE_PATH, buf, sizeof(buf))) return 0;
+    const char *p1 = strchr(buf, ',');
+    if (!p1) return 0;
+    const char *p2 = strchr(p1 + 1, ',');
+    if (!p2) return 0;
+    return strtoll(p2 + 1, NULL, 10);
+}
+
 static void sync_fod_illumination(void) {
     long long fppress = read_ll_file(OPPO_FPPRESS_PATH, 0);
+    if (fppress <= 0) {
+        fppress = read_fp_state_touch();
+    }
     long long dimlayer = read_ll_file(OPPO_DIMLAYER_PATH, 0);
     int prev_session = g_fod_session_active;
     g_fod_session_active = (dimlayer > 0 || fppress > 0) ? 1 : 0;
