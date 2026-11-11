@@ -1,14 +1,24 @@
 package com.realme.samurai.pm;
 
+import android.app.ContentProviderHolder;
 import android.app.KeyguardManager;
+import android.content.AttributionSource;
 import android.content.Context;
+import android.content.IContentProvider;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.content.pm.SigningDetails;
+import android.os.Binder;
+import android.os.Bundle;
 import android.os.IBinder;
+import android.os.Parcel;
 import android.os.PowerManager;
+import android.os.RemoteException;
 import android.os.SystemClock;
 import android.provider.Settings;
 
+import com.android.server.pm.PackageManagerService;
 import com.android.server.pm.PackageSetting;
 import com.android.server.pm.SharedUserSetting;
 import com.android.server.pm.pkg.PackageState;
@@ -17,19 +27,15 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
+import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.security.MessageDigest;
 
 /**
  * Strictly-scoped Android 17 platform-signature bridge for read-only `/system` and `/system_ext`
- * privileged packages signed with the pinned `samurai-ota-release.jks` certificate.
- *
- * Security invariants:
- * 1. NEVER trusts `/data/app` user apps or updated system apps (`!isUpdatedSystemApp()`).
- * 2. Requires `isSystem() && isPrivileged()` AND an exact 256-bit SHA-256 certificate match
- *    against `SAMURAI_OTA_SHA256`.
- * 3. Allows clean dirty-OTA transitions on `com.android.systemui` (`android.uid.systemui`) between
- *    the stock CP3A platform cert and `SAMURAI_OTA_SHA256` without affecting Play Integrity or GMS.
+ * system packages signed with the pinned `samurai-ota-release.jks` certificate, plus Home empty-space
+ * double-tap-to-sleep, Pixel Photos sysconfig feature routing, and per-UID Settings isolation.
  */
 public final class SamuraiPlatformSigBridge {
 
@@ -71,6 +77,16 @@ public final class SamuraiPlatformSigBridge {
             (byte) 0x32, (byte) 0xa5, (byte) 0x74, (byte) 0xd0
     };
 
+    private static final String PHOTOS_PKG = "com.google.android.apps.photos";
+    private static final String ICONTENT_PROVIDER_DESCRIPTOR = "android.content.IContentProvider";
+
+    private static final Object SETTINGS_WRAP_LOCK = new Object();
+    private static IBinder sCachedRawSettingsBinder = null;
+    private static SamuraiSettingsBinderWrapper sCachedWrapperBinder = null;
+    private static IContentProvider sCachedWrappedProvider = null;
+
+    private static volatile int sCachedPhotosUid = -1;
+
     private SamuraiPlatformSigBridge() {}
 
     private static boolean isTrustedStockSystemCert(SigningDetails details) {
@@ -88,7 +104,7 @@ public final class SamuraiPlatformSigBridge {
             if (pkgState == null || pkgSig == null) {
                 return false;
             }
-            if (!pkgState.isSystem() || !pkgState.isPrivileged() || pkgState.isUpdatedSystemApp()) {
+            if (!pkgState.isSystem() || pkgState.isUpdatedSystemApp()) {
                 return false;
             }
             String pathStr = pkgState.getPath() != null ? pkgState.getPath().getPath() : "";
@@ -165,6 +181,231 @@ public final class SamuraiPlatformSigBridge {
         }
     }
 
+    /**
+     * Scopes Pixel 2016 (`NEXUS_PRELOAD`) feature visibility strictly to Google Photos without
+     * altering Pixel 2021-2025 feature flags for Pixel Launcher, GCam, SystemUI, or GMS, and
+     * without requiring any APK bind-mounts in Zygote.
+     */
+    public static boolean hasSystemFeature(PackageManagerService service, String name, int version) {
+        if (service == null) {
+            return false;
+        }
+        try {
+            if (name != null
+                    && (name.startsWith("com.google.android.apps.photos.")
+                            || name.startsWith("com.google.android.feature."))) {
+                final int callingUid = Binder.getCallingUid();
+                if ((callingUid % 100000) >= 10000 && isPhotosCallerUid(service.mContext, callingUid)) {
+                    if ("com.google.android.apps.photos.NEXUS_PRELOAD".equals(name)
+                            || "com.google.android.apps.photos.nexus_preload".equals(name)
+                            || "com.google.android.feature.PIXEL_EXPERIENCE".equals(name)
+                            || "com.google.android.feature.GOOGLE_BUILD".equals(name)
+                            || "com.google.android.feature.GOOGLE_EXPERIENCE".equals(name)) {
+                        return true;
+                    }
+                    if (name.startsWith("com.google.android.apps.photos.PIXEL_20")
+                            || name.startsWith("com.google.android.feature.PIXEL_20")) {
+                        return false;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return service.hasSystemFeature(name, version);
+    }
+
+    private static boolean isPhotosCallerUid(Context context, int uid) {
+        if (uid == sCachedPhotosUid) {
+            return true;
+        }
+        if (context == null) {
+            return false;
+        }
+        final long token = Binder.clearCallingIdentity();
+        try {
+            PackageManager pm = context.getPackageManager();
+            if (pm == null) {
+                return false;
+            }
+            String[] pkgs = pm.getPackagesForUid(uid);
+            if (pkgs != null) {
+                for (String pkg : pkgs) {
+                    if (PHOTOS_PKG.equals(pkg)) {
+                        sCachedPhotosUid = uid;
+                        return true;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+        return false;
+    }
+
+    /**
+     * Called from `ContentProviderRecord.newHolder` so remote non-system `/data/app` clients
+     * observe user-build defaults for developer-toggle keys while `Settings`, `adb shell`,
+     * `system_server`, `GMS`, and `SamuraiParts` retain the user's real toggle values.
+     */
+    public static ContentProviderHolder maybeWrapSettingsHolder(
+            ContentProviderHolder holder, boolean local, Context context) {
+        try {
+            if (local
+                    || holder == null
+                    || holder.info == null
+                    || holder.provider == null
+                    || context == null
+                    || !"settings".equals(holder.info.authority)) {
+                return holder;
+            }
+            final int callingUid = Binder.getCallingUid();
+            if (!isStandardUserAppUid(context, callingUid)) {
+                return holder;
+            }
+            IContentProvider wrapped = getOrCreateWrappedSettingsProvider(holder.provider, context);
+            if (wrapped != null) {
+                holder.provider = wrapped;
+            }
+        } catch (Throwable ignored) {
+        }
+        return holder;
+    }
+
+    private static IContentProvider getOrCreateWrappedSettingsProvider(
+            IContentProvider rawProvider, Context context) {
+        IBinder rawBinder = rawProvider.asBinder();
+        if (rawBinder == null) {
+            return null;
+        }
+        synchronized (SETTINGS_WRAP_LOCK) {
+            if (sCachedRawSettingsBinder == rawBinder && sCachedWrappedProvider != null) {
+                return sCachedWrappedProvider;
+            }
+            final SamuraiSettingsBinderWrapper wrapperBinder =
+                    new SamuraiSettingsBinderWrapper(rawBinder, context.getApplicationContext() != null
+                            ? context.getApplicationContext()
+                            : context);
+            sCachedRawSettingsBinder = rawBinder;
+            sCachedWrapperBinder = wrapperBinder;
+            InvocationHandler handler = new InvocationHandler() {
+                @Override
+                public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+                    if ("asBinder".equals(method.getName())) {
+                        return sCachedWrapperBinder;
+                    }
+                    return method.invoke(rawProvider, args);
+                }
+            };
+            IContentProvider proxyProvider = (IContentProvider) Proxy.newProxyInstance(
+                    IContentProvider.class.getClassLoader(),
+                    new Class<?>[] { IContentProvider.class },
+                    handler);
+            sCachedWrappedProvider = proxyProvider;
+            return proxyProvider;
+        }
+    }
+
+    private static boolean isStandardUserAppUid(Context context, int uid) {
+        int appId = uid % 100000;
+        if (appId < 10000 || appId > 19999 || context == null) {
+            return false;
+        }
+        final long token = Binder.clearCallingIdentity();
+        try {
+            PackageManager pm = context.getPackageManager();
+            if (pm == null) {
+                return false;
+            }
+            String[] pkgs = pm.getPackagesForUid(uid);
+            if (pkgs == null || pkgs.length == 0) {
+                return false;
+            }
+            PackageManager.ApplicationInfoFlags zeroFlags =
+                    PackageManager.ApplicationInfoFlags.of(0L);
+            for (String pkg : pkgs) {
+                if (pkg == null
+                        || pkg.startsWith("com.android.")
+                        || pkg.startsWith("com.realme.")
+                        || "com.google.android.gms".equals(pkg)) {
+                    return false;
+                }
+                ApplicationInfo ai = pm.getApplicationInfo(pkg, zeroFlags);
+                if ((ai.flags & (ApplicationInfo.FLAG_SYSTEM
+                        | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
+    private static boolean isIsolatedDevSettingKey(String key) {
+        return "adb_enabled".equals(key)
+                || "adb_wifi_enabled".equals(key)
+                || "development_settings_enabled".equals(key)
+                || "mock_location".equals(key)
+                || "install_non_market_apps".equals(key);
+    }
+
+    private static final class SamuraiSettingsBinderWrapper extends Binder {
+        private final IBinder mBase;
+        private final Context mContext;
+
+        SamuraiSettingsBinderWrapper(IBinder base, Context context) {
+            mBase = base;
+            mContext = context;
+            attachInterface(null, ICONTENT_PROVIDER_DESCRIPTOR);
+        }
+
+        @Override
+        public String getInterfaceDescriptor() {
+            try {
+                String desc = mBase.getInterfaceDescriptor();
+                if (desc != null) {
+                    return desc;
+                }
+            } catch (RemoteException ignored) {
+            }
+            return ICONTENT_PROVIDER_DESCRIPTOR;
+        }
+
+        @Override
+        protected boolean onTransact(int code, Parcel data, Parcel reply, int flags)
+                throws RemoteException {
+            if (code == IContentProvider.CALL_TRANSACTION && data != null && reply != null) {
+                final int callerUid = Binder.getCallingUid();
+                if (isStandardUserAppUid(mContext, callerUid)) {
+                    final int startPos = data.dataPosition();
+                    try {
+                        data.enforceInterface(ICONTENT_PROVIDER_DESCRIPTOR);
+                        AttributionSource.CREATOR.createFromParcel(data);
+                        String authority = data.readString();
+                        String method = data.readString();
+                        String key = data.readString();
+                        if (("settings".equals(authority) || authority == null)
+                                && ("GET_global".equals(method) || "GET_secure".equals(method))
+                                && isIsolatedDevSettingKey(key)) {
+                            reply.writeNoException();
+                            Bundle out = new Bundle(1);
+                            out.putString("value", "0");
+                            reply.writeBundle(out);
+                            return true;
+                        }
+                    } catch (Throwable ignored) {
+                    } finally {
+                        data.setDataPosition(startPos);
+                    }
+                }
+            }
+            return mBase.transact(code, data, reply, flags);
+        }
+    }
+
     private static final Object TAP_LOCK = new Object();
     private static long sLastWallpaperTapMs = 0L;
     private static int sLastWallpaperTapX = 0;
@@ -174,10 +415,7 @@ public final class SamuraiPlatformSigBridge {
 
     /**
      * Invoked from `com.android.server.wm.Session.sendWallpaperCommand` whenever a window
-     * dispatches a wallpaper command (`"android.wallpaper.tap"`). Both retail Pixel Launcher
-     * (`NexusLauncherRelease`) and iOS Style UI Beta Launcher emit `"android.wallpaper.tap"`
-     * strictly when the user taps an empty area of the Home Screen workspace (never on icons,
-     * widgets, folders, dock, search bar, App Drawer, Notification Shade, Control Center, or keyboard).
+     * dispatches a wallpaper command (`"android.wallpaper.tap"`).
      */
     public static void onWallpaperCommand(
             Context context,
@@ -199,7 +437,7 @@ public final class SamuraiPlatformSigBridge {
                 final long dt = now - sLastWallpaperTapMs;
                 final int dx = Math.abs(x - sLastWallpaperTapX);
                 final int dy = Math.abs(y - sLastWallpaperTapY);
-                if (sLastWallpaperToken == windowToken && dt >= 45L && dt <= 380L && dx <= 108 && dy <= 108) {
+                if (dt >= 25L && dt <= 460L && dx <= 148 && dy <= 148) {
                     sLastWallpaperTapMs = 0L;
                     sLastWallpaperToken = null;
                     isDoubleTap = true;
@@ -210,29 +448,40 @@ public final class SamuraiPlatformSigBridge {
                     sLastWallpaperToken = windowToken;
                 }
             }
-            if (!isDoubleTap || !isHomeDoubleTapToLockEnabled(context)) {
+            if (!isDoubleTap) {
                 return;
             }
-            KeyguardManager km = context.getSystemService(KeyguardManager.class);
-            if (km != null && km.isKeyguardLocked()) {
-                return;
-            }
-            PowerManager pm = context.getSystemService(PowerManager.class);
-            if (pm != null) {
-                Method m = sGoToSleepMethod;
-                if (m == null) {
-                    m = PowerManager.class.getMethod("goToSleep", long.class);
-                    sGoToSleepMethod = m;
+            final long callingIdent = Binder.clearCallingIdentity();
+            try {
+                if (!isHomeDoubleTapToLockEnabled(context)) {
+                    return;
                 }
-                m.invoke(pm, SystemClock.uptimeMillis());
-                return;
-            }
-            File qDir = new File("/data/ota_package/hw/queue");
-            if (qDir.isDirectory()) {
-                File req = new File(qDir, "cmd_wms_sleep.req");
-                try (FileWriter fw = new FileWriter(req)) {
-                    fw.write("SLEEP=1\n");
+                KeyguardManager km = context.getSystemService(KeyguardManager.class);
+                if (km != null && km.isKeyguardLocked()) {
+                    return;
                 }
+                PowerManager pm = context.getSystemService(PowerManager.class);
+                if (pm != null) {
+                    try {
+                        Method m = sGoToSleepMethod;
+                        if (m == null) {
+                            m = PowerManager.class.getMethod("goToSleep", long.class);
+                            sGoToSleepMethod = m;
+                        }
+                        m.invoke(pm, SystemClock.uptimeMillis());
+                        return;
+                    } catch (Throwable ignored) {
+                    }
+                }
+                File qDir = new File("/data/ota_package/hw/queue");
+                if (qDir.isDirectory()) {
+                    File req = new File(qDir, "cmd_wms_sleep.req");
+                    try (FileWriter fw = new FileWriter(req)) {
+                        fw.write("SLEEP=1\n");
+                    }
+                }
+            } finally {
+                Binder.restoreCallingIdentity(callingIdent);
             }
         } catch (Throwable ignored) {
         }

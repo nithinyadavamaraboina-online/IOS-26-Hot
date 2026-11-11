@@ -30,6 +30,15 @@ import time
 import zipfile
 from datetime import datetime, timezone
 
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
+from qti_ims_telephony_a17 import (
+    QTI_SYSTEM_BUILD_PROPS,
+    QTI_SYSTEM_EXT_BUILD_PROPS,
+    inject_qti_ims_and_dialer_support,
+)
+
 
 def set_selinux(path: str, context: str) -> None:
     subprocess.run(
@@ -615,9 +624,13 @@ def patch_platform_selinux(sys_sub: str) -> None:
                 rules.append(f"(allow init {mnt_target} (file (mounton)))")
         if re.search(r"\bsystem_file\b", cil_txt):
             rules.append("(allow init system_file (dir (mounton)))")
-        for p_dom in ["init", "toolbox", "bpfloader", "netd", "adbd", "su"]:
+        for p_dom in ["init", "toolbox", "bpfloader", "netd", "adbd"]:
             if re.search(rf"\btype\s+{p_dom}\b", cil_txt):
                 rules.append(f"(typepermissive {p_dom})")
+        if re.search(r"\bsystem_server\b", cil_txt) and re.search(r"\btype\s+init\b", cil_txt):
+            rules.append("(allow system_server init (binder (call transfer)))")
+            rules.append("(allow system_server init (fd (use)))")
+            rules.append("(allow system_server init (fifo_file (ioctl read write getattr append)))")
         # Allow privileged SamuraiOTAUpdater, SamuraiParts & system_server (Android 17 priv_app AND targetSdk<=36 priv_app_36 / priv_app_all)
         # to read/write/create files in /data/ota_package(/hw) under SELinux Enforcing
         if re.search(r"\bota_package_file\b", cil_txt):
@@ -1074,6 +1087,14 @@ def main() -> int:
         gid=0,
         ctx="u:object_r:system_file:s0",
     )
+    install_file(
+        os.path.join(parts_src, "etc", "sysconfig", "pixel_2016_exclusive.xml"),
+        os.path.join(sys_sub, "product", "etc", "sysconfig", "pixel_2016_exclusive.xml"),
+        mode=0o644,
+        uid=0,
+        gid=0,
+        ctx="u:object_r:system_file:s0",
+    )
     install_bytes(
         b"\x00\x00\x80\xd2",
         os.path.join(sys_sub, "etc", "samurai-mods", "gcastartup_uaf_fix.bin"),
@@ -1178,6 +1199,7 @@ def main() -> int:
     sysext_overlay = os.path.join(sys_sub, "system_ext", "overlay")
     rro_list = [
         "SamuraiHardwareOverlay.apk",
+        "SamuraiTelephonyOverlay.apk",
         "SamuraiSystemUIOverlay.apk",
         "SamuraiSettingsOverlay.apk",
         "SamuraiHidePillOverlay.apk",
@@ -1226,6 +1248,15 @@ def main() -> int:
     # 6. Patch plat_file_contexts & plat_sepolicy.cil for /dev/ion + BPF + ota_package_file
     patch_platform_selinux(sys_sub)
 
+    # 6b. Inject QTI IMS/VoLTE/ViLTE/VoWiFi/SMS/DSDS/DPM stack, RMX1931 CarrierConfigRes.apk & Google Dialer support
+    inject_qti_ims_and_dialer_support(
+        sys_sub=sys_sub,
+        a17_dir=a17_dir,
+        out_bin_dir=out_bin_dir,
+        out_fwk_dir=os.path.join(out_root, "framework"),
+        work_root=work_root,
+    )
+
     # 7. Configure Clean Pixel OS, 90Hz SurfaceFlinger VSync, 8-core dex2oat, BootGuard & Repo OTA Props
     build_ts = int(float(os.environ.get("OTA_BUILD_DATETIME", str(int(time.time())))))
     dt_str = datetime.fromtimestamp(build_ts, tz=timezone.utc).strftime("%Y%m%d-%H%M")
@@ -1271,10 +1302,19 @@ def main() -> int:
         "com.google.android.GoogleCamera,com.google.android.GoogleCameraEng,app.grapheneos.camera"
     )
 
+    caiman_fp = "google/caiman/caiman:17/CP3A.260905.010/16176746:user/release-keys"
+    caiman_desc = "caiman-user 17 CP3A.260905.010 16176746 release-keys"
+
     tuning_props = {
-        "ro.debuggable": "1",
+        "ro.debuggable": "0",
         "ro.adb.secure": "0",
-        "ro.secure": "0",
+        "ro.secure": "1",
+        "ro.build.type": "user",
+        "ro.build.tags": "release-keys",
+        "ro.build.flavor": "caiman-user",
+        "ro.build.description": caiman_desc,
+        "ro.build.fingerprint": caiman_fp,
+        "ro.system.build.fingerprint": caiman_fp,
         "persist.sys.usb.config": "mtp,adb",
         "persist.sys.disable_rescue": "true",
         "persist.zygote.zygote_next.start_on_boot": "true",
@@ -1332,7 +1372,7 @@ def main() -> int:
         "persist.vendor.fingerprint.fp_id": "G_OPTICAL_G3",
         "persist.vendor.fingerprint.version": "Goodix",
         "persist.vendor.qfp": "true",
-        "vendor.flash.locked": "0",
+        "vendor.flash.locked": "1",
         "ro.ota.device": "RMX1931",
         "ro.ota.channel": ota_channel,
         "ro.ota.repo": ota_repo,
@@ -1346,6 +1386,7 @@ def main() -> int:
         "ro.product.system.model": "Realme X2 Pro",
         "ro.product.system.device": "RMX1931L1",
         "ro.product.system.name": "RMX1931",
+        **QTI_SYSTEM_BUILD_PROPS,
     }
     patch_build_prop(
         os.path.join(sys_sub, "build.prop"),
@@ -1367,6 +1408,11 @@ def main() -> int:
         "ro.product.product.device": "RMX1931L1",
         "ro.product.product.name": "RMX1931",
         "ro.product.Product_model": "Realme X2 Pro",
+        "ro.product.build.type": "user",
+        "ro.product.build.tags": "release-keys",
+        "ro.product.build.fingerprint": caiman_fp,
+        "ro.build.flavor": "caiman-user",
+        "ro.build.description": caiman_desc,
         "ro.opa.eligible_device": "true",
         "ro.com.google.ime.theme_id": "5",
         "ro.lmk.kill_heaviest_task": "true",
@@ -1390,7 +1436,11 @@ def main() -> int:
         "ro.product.system_ext.model": "Realme X2 Pro",
         "ro.product.system_ext.device": "RMX1931L1",
         "ro.product.system_ext.name": "RMX1931",
+        "ro.system_ext.build.type": "user",
+        "ro.system_ext.build.tags": "release-keys",
+        "ro.system_ext.build.fingerprint": caiman_fp,
         "persist.arm64.memtag.app.com.google.android.bluetooth": "off",
+        **QTI_SYSTEM_EXT_BUILD_PROPS,
     })
 
     # 8. Audit Pixel GApps & write build manifest
@@ -1436,6 +1486,7 @@ def main() -> int:
         "/system/etc/samurai-mods-sync.sh",
         "/system/etc/samurai-gcam-sync.sh",
         "/system/etc/samurai-mods/photos-gsi-dex.zip",
+        "/system/product/etc/sysconfig/pixel_2016_exclusive.xml",
         "/system/etc/samurai-mods/gcastartup_uaf_fix.bin",
         "/system/etc/samurai-mods/release-mods.json",
         "/system/etc/init/samurai_parts.rc",
@@ -1446,6 +1497,16 @@ def main() -> int:
         "/system/usr/keylayout/samurai-virtual-keys.kl",
         "/system/etc/vintf/compatibility_matrix.device.xml",
         "/system/system_ext/priv-app/NexusLauncherRelease/NexusLauncherRelease.apk",
+        "/system/system_ext/priv-app/ims/ims.apk",
+        "/system/system_ext/priv-app/qcrilmsgtunnel/qcrilmsgtunnel.apk",
+        "/system/system_ext/priv-app/dpmserviceapp/dpmserviceapp.apk",
+        "/system/system_ext/app/QtiTelephonyService/QtiTelephonyService.apk",
+        "/system/system_ext/app/ImsRcsService/ImsRcsService.apk",
+        "/system/system_ext/bin/dpmd",
+        "/system/system_ext/lib64/libgui_shim.so",
+        "/system/product/overlay/CarrierConfigRes.apk",
+        "/system/product/framework/com.google.android.dialer.support.jar",
+        "/system/product/etc/permissions/com.google.android.dialer.support.xml",
     ] + [f"/system/system_ext/overlay/{rro}" for rro in rro_list]
     if is_ios_beta:
         injected_items.extend([

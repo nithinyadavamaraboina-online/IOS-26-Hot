@@ -222,6 +222,9 @@
     <bool name="config_carrier_wfc_ims_available">true</bool>
     <bool name="config_eap_sim_based_auth_supported">true</bool>
     <bool name="config_hotswapCapable">true</bool>
+    <bool name="config_speed_up_audio_on_mt_calls">true</bool>
+    <bool name="config_switch_phone_on_voice_reg_state_change">false</bool>
+    <bool name="skip_restoring_network_selection">true</bool>
     <string name="config_qualified_networks_service_package" translatable="false">vendor.qti.iwlan</string>
     <string name="config_wlan_network_service_package" translatable="false">vendor.qti.iwlan</string>
     <bool name="config_enableWifiDisplay">true</bool>

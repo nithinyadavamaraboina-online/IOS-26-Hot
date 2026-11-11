@@ -385,34 +385,161 @@ def patch_udfps_optical_overlay(decoded_dir: str) -> None:
         f.write(cb_src)
 
 
+def patch_reconcile_package_utils(decoded_dir: str) -> None:
+    """
+    Allow QTI system_ext/vendor telephony packages (dpmserviceapp, ImsRcsService,
+    qcrilmsgtunnel, QtiTelephonyService) to join android.uid.phone / android.uid.qtiphone
+    on user builds without ReconcileFailure(-107) on dirty OTA or clean flash, paired
+    with /system/system_ext/etc/sysconfig/qti-telephony-shareduid-allowlist.xml.
+    """
+    rec_path = find_smali(
+        decoded_dir,
+        "com/android/server/pm/ReconcilePackageUtils.smali",
+    )
+    with open(rec_path, "r", encoding="utf-8") as f:
+        rec_src = f.read()
+
+    target = "    sput-boolean v0, Lcom/android/server/pm/ReconcilePackageUtils;->ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS:Z"
+    if rec_src.count(target) != 1:
+        raise RuntimeError("Expected ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS sput-boolean in ReconcilePackageUtils.smali")
+    replacement = (
+        "    const/4 v0, 0x1\n\n"
+        "    sput-boolean v0, Lcom/android/server/pm/ReconcilePackageUtils;->ALLOW_NON_PRELOADS_SYSTEM_SHAREDUIDS:Z"
+    )
+    rec_src = rec_src.replace(target, replacement, 1)
+    with open(rec_path, "w", encoding="utf-8") as f:
+        f.write(rec_src)
+
+
+def patch_content_provider_record(decoded_dir: str) -> None:
+    """
+    Hooks ContentProviderRecord.newHolder to attach SamuraiPlatformSigBridge.maybeWrapSettingsHolder
+    for non-local non-system client UIDs acquiring authority="settings".
+    """
+    path = find_smali(
+        decoded_dir,
+        "com/android/server/am/ContentProviderRecord.smali",
+    )
+    with open(path, "r", encoding="utf-8") as f:
+        src = f.read()
+
+    m_start = src.find(
+        ".method public newHolder("
+        "Lcom/android/server/am/ContentProviderConnection;Z)"
+        "Landroid/app/ContentProviderHolder;"
+    )
+    m_end = src.find(".end method", m_start) if m_start >= 0 else -1
+    if m_start < 0 or m_end < 0:
+        raise RuntimeError("newHolder not found in ContentProviderRecord.smali")
+
+    body = src[m_start:m_end]
+    prov_target = (
+        "    iget-object v1, p0, Lcom/android/server/am/ContentProviderRecord;->mProvider:Landroid/content/IContentProvider;\n\n"
+        "    iput-object v1, v0, Landroid/app/ContentProviderHolder;->provider:Landroid/content/IContentProvider;"
+    )
+    ret_target = (
+        "    :cond_2\n"
+        "    :goto_0\n"
+        "    return-object v0"
+    )
+    if body.count(prov_target) != 1 or body.count(ret_target) != 1:
+        raise RuntimeError("Expected exact provider/return blocks in ContentProviderRecord.newHolder")
+
+    body = body.replace(
+        prov_target,
+        prov_target
+        + "\n\n    iget-object v1, p0, Lcom/android/server/am/ContentProviderRecord;->mService:Lcom/android/server/am/ActivityManagerService;\n\n"
+        "    iget-object v1, v1, Lcom/android/server/am/ActivityManagerService;->mContext:Landroid/content/Context;",
+        1,
+    )
+    body = body.replace(
+        ret_target,
+        "    :cond_2\n"
+        "    :goto_0\n"
+        "    invoke-static {v0, p2, v1}, Lcom/realme/samurai/pm/SamuraiPlatformSigBridge;"
+        "->maybeWrapSettingsHolder(Landroid/app/ContentProviderHolder;ZLandroid/content/Context;)"
+        "Landroid/app/ContentProviderHolder;\n\n"
+        "    move-result-object v0\n\n"
+        "    return-object v0",
+        1,
+    )
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(src[:m_start] + body + src[m_end:])
+
+
+def patch_ipackage_manager_base(decoded_dir: str) -> None:
+    """
+    Routes IPackageManagerBase.hasSystemFeature through SamuraiPlatformSigBridge.hasSystemFeature
+    so Google Photos receives Pixel 2016 feature flags without APK bind-mounts.
+    """
+    path = find_smali(
+        decoded_dir,
+        "com/android/server/pm/IPackageManagerBase.smali",
+    )
+    with open(path, "r", encoding="utf-8") as f:
+        src = f.read()
+
+    m_start = src.find(".method public final hasSystemFeature(Ljava/lang/String;I)Z")
+    if m_start < 0:
+        m_start = src.find(".method public hasSystemFeature(Ljava/lang/String;I)Z")
+    m_end = src.find(".end method", m_start) if m_start >= 0 else -1
+    if m_start < 0 or m_end < 0:
+        raise RuntimeError("hasSystemFeature not found in IPackageManagerBase.smali")
+
+    body = src[m_start:m_end]
+    target = (
+        "    invoke-virtual {p0, p1, p2}, Lcom/android/server/pm/PackageManagerService;"
+        "->hasSystemFeature(Ljava/lang/String;I)Z"
+    )
+    if body.count(target) != 1:
+        raise RuntimeError("Expected exact PackageManagerService.hasSystemFeature call in IPackageManagerBase.smali")
+
+    body = body.replace(
+        target,
+        "    invoke-static {p0, p1, p2}, Lcom/realme/samurai/pm/SamuraiPlatformSigBridge;"
+        "->hasSystemFeature(Lcom/android/server/pm/PackageManagerService;Ljava/lang/String;I)Z",
+        1,
+    )
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(src[:m_start] + body + src[m_end:])
+
+
 def main() -> int:
     if not os.path.isfile(STOCK_JAR):
         raise FileNotFoundError(f"Missing pristine services_stock.jar at {STOCK_JAR}")
 
-    if os.path.exists(BUILD_DIR):
-        shutil.rmtree(BUILD_DIR)
     decoded_dir = os.path.join(BUILD_DIR, "decoded")
     rebuilt_jar = os.path.join(BUILD_DIR, "rebuilt-smali.jar")
+    fast_bridge = os.environ.get("FAST_REBUILD_BRIDGE") == "1" and os.path.isfile(rebuilt_jar)
+    if not fast_bridge and os.path.exists(BUILD_DIR):
+        shutil.rmtree(BUILD_DIR)
     stubs_classes = os.path.join(BUILD_DIR, "stubs_classes")
     mod_classes = os.path.join(BUILD_DIR, "mod_classes")
     mod_dex = os.path.join(BUILD_DIR, "mod_dex")
-    os.makedirs(stubs_classes, exist_ok=True)
-    os.makedirs(mod_classes, exist_ok=True)
-    os.makedirs(mod_dex, exist_ok=True)
+    for d in (stubs_classes, mod_classes, mod_dex):
+        if os.path.exists(d):
+            shutil.rmtree(d)
+        os.makedirs(d, exist_ok=True)
     os.makedirs(os.path.dirname(OUT_JAR), exist_ok=True)
 
-    print("[services-mod] 1/4 Decoding pristine services_stock.jar via apktool (-r)...")
-    run([JAVA, "-jar", APKTOOL_JAR, "d", "-f", "-r", STOCK_JAR, "-o", decoded_dir])
+    if not fast_bridge:
+        print("[services-mod] 1/4 Decoding pristine services_stock.jar via apktool (-r)...")
+        run([JAVA, "-jar", APKTOOL_JAR, "d", "-f", "-r", STOCK_JAR, "-o", decoded_dir])
 
-    print("[services-mod] 2/4 Applying surgical signature bridge, wallpaper tap & optical UDFPS hooks...")
-    patch_app_id_permission_policy(decoded_dir)
-    patch_pms_utils(decoded_dir)
-    patch_wm_session(decoded_dir)
-    patch_fingerprint_aidl_sensor(decoded_dir)
-    patch_udfps_optical_overlay(decoded_dir)
+        print("[services-mod] 2/4 Applying surgical signature bridge, wallpaper tap & optical UDFPS hooks...")
+        patch_app_id_permission_policy(decoded_dir)
+        patch_pms_utils(decoded_dir)
+        patch_reconcile_package_utils(decoded_dir)
+        patch_content_provider_record(decoded_dir)
+        patch_ipackage_manager_base(decoded_dir)
+        patch_wm_session(decoded_dir)
+        patch_fingerprint_aidl_sensor(decoded_dir)
+        patch_udfps_optical_overlay(decoded_dir)
 
-    print("[services-mod] 3/4 Rebuilding smali & compiling SamuraiPlatformSigBridge.java...")
-    run([JAVA, "-jar", APKTOOL_JAR, "b", decoded_dir, "-o", rebuilt_jar])
+        print("[services-mod] 3/4 Rebuilding smali & compiling SamuraiPlatformSigBridge.java...")
+        run([JAVA, "-jar", APKTOOL_JAR, "b", decoded_dir, "-o", rebuilt_jar])
+    else:
+        print("[services-mod] Fast-rebuilding classes4.dex against cached rebuilt-smali.jar...")
 
     stub_srcs = sorted(
         glob.glob(os.path.join(A17_ROOT, "services-mod/stubs/**/*.java"), recursive=True)

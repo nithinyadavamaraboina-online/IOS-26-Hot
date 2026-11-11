@@ -108,7 +108,14 @@ if { [ -n "${CUR_VER}" ] && [ "${CUR_VER}" != "${PREV_VER}" ]; } || [ "${CUR_CH}
           /data/dalvik-cache/arm64/*Samurai* \
           /data/dalvik-cache/arm64/*Ios* \
           /data/dalvik-cache/arm64/*ICall* \
+          /data/dalvik-cache/arm64/*ims* \
+          /data/dalvik-cache/arm64/*ImsRcs* \
+          /data/dalvik-cache/arm64/*QtiTelephony* \
+          /data/dalvik-cache/arm64/*qcril* \
+          /data/dalvik-cache/arm64/*dpmservice* \
           /data/dalvik-cache/arm64/*services.jar* 2>/dev/null || true
+    rm -f /data/user_de/0/com.android.phone/files/carrierconfig-*.xml \
+          /data/data/com.android.phone/files/carrierconfig-*.xml 2>/dev/null || true
     rm -f /data/data/com.google.android.apps.nexuslauncher/databases/app_icons.db* \
           /data/user/0/com.google.android.apps.nexuslauncher/databases/app_icons.db* \
           /data/user_de/0/com.google.android.apps.nexuslauncher/databases/app_icons.db* 2>/dev/null || true
@@ -143,5 +150,10 @@ fi
 
 restorecon -RF "${OTA_DIR}" 2>/dev/null || true
 [ -d "${RAW_DIR}" ] && restorecon -RF "${RAW_DIR}" 2>/dev/null || true
-rm -rf "${OTA_DIR}/adblock" "${OTA_DIR}/hw/adblock.prop" 2>/dev/null || true
+rm -rf "${OTA_DIR}/adblock" "${OTA_DIR}/hw/adblock.prop" /data/adb/samurai_mods 2>/dev/null || true
+if [ -d /data/adb ]; then
+    chown 0:0 /data/adb 2>/dev/null || true
+    chmod 0700 /data/adb 2>/dev/null || true
+    restorecon /data/adb 2>/dev/null || true
+fi
 exit 0

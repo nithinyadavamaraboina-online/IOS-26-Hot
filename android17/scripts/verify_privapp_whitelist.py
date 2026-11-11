@@ -27,6 +27,7 @@ AAPT2 = f"{BUILD_TOOLS}/aapt2"
 ZIPALIGN = f"{BUILD_TOOLS}/zipalign"
 APKSIGNER = f"{BUILD_TOOLS}/apksigner"
 OUT_APKS = f"{WORK_ROOT}/out/apks"
+OUT_BIN = f"{WORK_ROOT}/out/bin"
 OUT_FWK = f"{WORK_ROOT}/out/framework"
 FW_RES_STOCK = f"{WORK_ROOT}/downloads/pixel_a17_cp3a/framework-res_stock.apk"
 SYSUI_STOCK = f"{WORK_ROOT}/downloads/pixel_a17_cp3a/SystemUI_stock.apk"
@@ -63,6 +64,7 @@ PIXELOS_APKS = [
     "SamuraiOTAUpdater.apk",
     "SamuraiParts.apk",
     "SamuraiHardwareOverlay.apk",
+    "SamuraiTelephonyOverlay.apk",
     "SamuraiSystemUIOverlay.apk",
     "SamuraiSettingsOverlay.apk",
     "SamuraiHidePillOverlay.apk",
@@ -78,6 +80,7 @@ IOS_BETA_APKS = [
     "IosDialer.apk",
     "IosMessages.apk",
     "SamuraiHardwareOverlay.apk",
+    "SamuraiTelephonyOverlay.apk",
     "SamuraiSystemUIOverlay.apk",
     "SamuraiSettingsOverlay.apk",
     "SamuraiDialerOverlay.apk",
@@ -294,6 +297,30 @@ def main() -> int:
         return 1
     print("[OK] services.jar (classes4.dex + Dual-Channel SamuraiPlatformSigBridge + 4-byte zipalign) verified!")
 
+    # Verify Android 17 QTI ViLTE libgui_shim.so and Google Dialer support JAR
+    libgui_shim = os.path.join(OUT_BIN, "libgui_shim.so")
+    if not os.path.isfile(libgui_shim):
+        print(f"ERROR: Missing rebuilt Android 17 {libgui_shim}", file=sys.stderr)
+        return 1
+    with open(libgui_shim, "rb") as f:
+        shim_bytes = f.read()
+    if shim_bytes[:4] != b"\x7fELF" or b"_ZN7android7SurfaceC1ERKNS_2spINS_22IGraphicBufferProducerEEEbRKNS1_INS_7IBinderEEE" not in shim_bytes:
+        print("ERROR: libgui_shim.so invalid ELF or missing 3-arg android::Surface::Surface symbol!", file=sys.stderr)
+        return 1
+    dialer_jar = os.path.join(OUT_FWK, "com.google.android.dialer.support.jar")
+    if not os.path.isfile(dialer_jar):
+        print(f"ERROR: Missing {dialer_jar}", file=sys.stderr)
+        return 1
+    with zipfile.ZipFile(dialer_jar, "r") as zf:
+        if "classes.dex" not in zf.namelist():
+            print("ERROR: com.google.android.dialer.support.jar missing classes.dex!", file=sys.stderr)
+            return 1
+    za_dialer = subprocess.run([ZIPALIGN, "-c", "4", dialer_jar], capture_output=True, text=True)
+    if za_dialer.returncode != 0:
+        print(f"ERROR: com.google.android.dialer.support.jar failed 4-byte zipalign:\n{za_dialer.stdout}\n{za_dialer.stderr}", file=sys.stderr)
+        return 1
+    print("[OK] libgui_shim.so (A17 SurfaceConfig ABI) + com.google.android.dialer.support.jar verified!")
+
     nx_apk = os.path.join(OUT_APKS, "NexusLauncherRelease.apk")
     nx_xml = os.path.join(A17_ROOT, "SamuraiParts", "etc", "permissions", "privapp-permissions-pixel-launcher.xml")
     nx_badge = subprocess.check_output([AAPT2, "dump", "badging", nx_apk], text=True)
@@ -325,7 +352,7 @@ def main() -> int:
                 return 1
         print(
             "[OK] Pure PixelOS verified: unmodified Google-signed NexusLauncherRelease.apk (v907), "
-            "4 hardware RROs, ZERO iOS apps, ZERO iOS overlays!"
+            "5 hardware/telephony RROs, ZERO iOS apps, ZERO iOS overlays!"
         )
         return 0
 

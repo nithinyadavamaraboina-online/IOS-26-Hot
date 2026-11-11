@@ -33,6 +33,7 @@
 #include <string.h>
 #include <sys/inotify.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -316,6 +317,129 @@ static void scrub_stale_fastboot_bcb(void) {
         close(fd);
         break;
     }
+}
+
+/*
+ * Early-init and post-boot Bionic property synchronization (/dev/__properties__/).
+ * Ensures production user-build and verified-boot read-only properties are consistent
+ * before Zygote starts, and updates ro.adb.secure once adbd has initialized.
+ */
+static int g_adb_prop_synced = 0;
+
+static int patch_prop_file_value(const char *prop_file, const char *prop_name, const char *new_val) {
+    int fd = open(prop_file, O_RDWR | O_CLOEXEC);
+    if (fd < 0) return 0;
+    struct stat st;
+    if (fstat(fd, &st) != 0 || st.st_size < 128) {
+        close(fd);
+        return 0;
+    }
+    size_t sz = (size_t)st.st_size;
+    uint8_t *map = (uint8_t *)mmap(NULL, sz, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (map == MAP_FAILED) {
+        close(fd);
+        return 0;
+    }
+    int matched = 0;
+    bool modified = false;
+    size_t name_len = strlen(prop_name) + 1;
+    size_t val_len = strlen(new_val);
+    if (val_len < 92) {
+        for (size_t off = 96; off + name_len <= sz; off += 4) {
+            if (memcmp(map + off, prop_name, name_len) == 0) {
+                uint32_t *serial_ptr = (uint32_t *)(void *)(map + off - 96);
+                char *val_ptr = (char *)(void *)(map + off - 92);
+                uint32_t old_serial = __atomic_load_n(serial_ptr, __ATOMIC_RELAXED);
+                uint32_t old_len = old_serial >> 24;
+                if (old_len < 92 && (old_serial & 1U) == 0 && strnlen(val_ptr, 92) == (size_t)old_len) {
+                    matched++;
+                    if ((size_t)old_len != val_len || memcmp(val_ptr, new_val, val_len + 1) != 0) {
+                        memset(val_ptr, 0, 92);
+                        memcpy(val_ptr, new_val, val_len);
+                        uint32_t new_serial = ((uint32_t)val_len << 24) | ((old_serial + 2U) & 0x00fffffeU);
+                        __atomic_store_n(serial_ptr, new_serial, __ATOMIC_RELEASE);
+                        modified = true;
+                    }
+                }
+            }
+        }
+    }
+    if (modified) {
+        msync(map, sz, MS_SYNC);
+    }
+    munmap(map, sz);
+    close(fd);
+    return matched;
+}
+
+static void ensure_prop_value(const char *preferred_file, const char *prop_name, const char *new_val) {
+    if (preferred_file && patch_prop_file_value(preferred_file, prop_name, new_val) > 0) {
+        return;
+    }
+    DIR *dir = opendir("/dev/__properties__");
+    if (dir) {
+        struct dirent *de;
+        while ((de = readdir(dir)) != NULL) {
+            if (de->d_name[0] == '.') continue;
+            if (strcmp(de->d_name, "property_info") == 0 || strcmp(de->d_name, "properties_serial") == 0) {
+                continue;
+            }
+            char full[320];
+            snprintf(full, sizeof(full), "/dev/__properties__/%s", de->d_name);
+            struct stat st;
+            if (stat(full, &st) == 0 && S_ISREG(st.st_mode)) {
+                if (patch_prop_file_value(full, prop_name, new_val) > 0) {
+                    closedir(dir);
+                    return;
+                }
+            }
+        }
+        closedir(dir);
+    }
+    set_system_prop_async(prop_name, new_val);
+}
+
+static bool is_adbd_process_active(void) {
+    DIR *dir = opendir("/proc");
+    if (!dir) return false;
+    struct dirent *de;
+    bool found = false;
+    while ((de = readdir(dir)) != NULL) {
+        if (!isdigit((unsigned char)de->d_name[0])) continue;
+        char comm_path[320];
+        char comm[32];
+        snprintf(comm_path, sizeof(comm_path), "/proc/%s/comm", de->d_name);
+        if (read_str_file(comm_path, comm, sizeof(comm)) && strcmp(comm, "adbd") == 0) {
+            found = true;
+            break;
+        }
+    }
+    closedir(dir);
+    return found;
+}
+
+static void apply_early_boot_props(void) {
+    ensure_prop_value("/dev/__properties__/u:object_r:userdebug_or_eng_prop:s0", "ro.debuggable", "0");
+    ensure_prop_value("/dev/__properties__/u:object_r:userdebug_or_eng_prop:s0", "ro.secure", "1");
+    ensure_prop_value("/dev/__properties__/u:object_r:bootloader_prop:s0", "ro.boot.verifiedbootstate", "green");
+    ensure_prop_value("/dev/__properties__/u:object_r:bootloader_prop:s0", "ro.boot.veritymode", "enforcing");
+    ensure_prop_value("/dev/__properties__/u:object_r:bootloader_prop:s0", "ro.boot.flash.locked", "1");
+    ensure_prop_value("/dev/__properties__/u:object_r:bootloader_prop:s0", "ro.boot.vbmeta.device_state", "locked");
+    ensure_prop_value("/dev/__properties__/u:object_r:vendor_default_prop:s0", "vendor.flash.locked", "1");
+    ensure_prop_value("/dev/__properties__/u:object_r:build_prop:s0", "ro.build.type", "user");
+    ensure_prop_value("/dev/__properties__/u:object_r:build_prop:s0", "ro.build.tags", "release-keys");
+}
+
+static void maybe_sync_adb_prop(bool force_now) {
+    if (!g_adb_prop_synced && (force_now || is_adbd_process_active())) {
+        ensure_prop_value("/dev/__properties__/u:object_r:adb_prop:s0", "ro.adb.secure", "1");
+        g_adb_prop_synced = 1;
+    }
+}
+
+static void apply_post_boot_security_props(void) {
+    apply_early_boot_props();
+    maybe_sync_adb_prop(true);
 }
 
 static void toggle_rear_torch(void) {
@@ -826,6 +950,7 @@ static void handle_command_kv(const char *key, const char *val_str) {
         }
     } else if (strcmp(key, "BOOT_HEALTHY") == 0 && val == 1) {
         scrub_stale_fastboot_bcb();
+        apply_post_boot_security_props();
     } else if (strcmp(key, "TELEMETRY") == 0) {
         g_state.telemetry_until_ms = now_ms() + (int64_t)(val > 0 ? val : 15) * 1000LL;
         write_telemetry_snapshot();
@@ -1069,7 +1194,15 @@ static void handle_touchpanel_events(int tp_fd, mt_tap_tracker_t *tr) {
     }
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    if (argc > 1 && strcmp(argv[1], "--early-props") == 0) {
+        apply_early_boot_props();
+        return 0;
+    }
+
+    apply_early_boot_props();
+    maybe_sync_adb_prop(false);
+
     mkdir("/data/ota_package", 0777);
     chmod("/data/ota_package", 0777);
     mkdir(HW_DIR, 0777);
@@ -1096,6 +1229,16 @@ int main(void) {
 
     int64_t last_periodic_ms = now_ms();
     drain_command_queue();
+    {
+        char bc_buf[64] = {0};
+        FILE *fp_bc = popen("/system/bin/getprop sys.boot_completed", "r");
+        if (fp_bc) {
+            if (fgets(bc_buf, sizeof(bc_buf), fp_bc) && bc_buf[0] == '1') {
+                apply_post_boot_security_props();
+            }
+            pclose(fp_bc);
+        }
+    }
 
     for (;;) {
         if (tp_fd < 0 || kpd_fd < 0) {
@@ -1179,6 +1322,9 @@ int main(void) {
             last_periodic_ms = t;
             if (!g_state.hbm_mode && !g_fod_hbm_active && !g_fod_session_active && read_ll_file(OPPO_HBM_PATH, 0) != 0) {
                 disable_hbm_and_restore_backlight();
+            }
+            if (!g_adb_prop_synced) {
+                maybe_sync_adb_prop(false);
             }
             apply_battery_and_otg();
             if (g_state.telemetry_until_ms > t) {

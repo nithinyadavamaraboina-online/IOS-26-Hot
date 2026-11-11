@@ -159,7 +159,7 @@ def patch_vendor_build_prop(prop_text: str) -> str:
         "persist.vendor.fingerprint.fp_id": "G_OPTICAL_G3",
         "persist.vendor.fingerprint.version": "Goodix",
         "persist.vendor.qfp": "true",
-        "vendor.flash.locked": "0",
+        "vendor.flash.locked": "1",
     }
     drop_keys = {"debug.renderengine.backend", "debug.hwui.renderer"}
     remaining = dict(updates)

@@ -31,13 +31,13 @@ service samurai_mods_sync /system/bin/sh /system/etc/samurai-mods-sync.sh
     class late_start
     user root
     group root system cache inet
-    seclabel u:r:su:s0
+    seclabel u:r:init:s0
     disabled
 
 service samurai_gcam_sync /system/bin/sh /system/etc/samurai-gcam-sync.sh
     class late_start
     user root
     group root system cache
-    seclabel u:r:su:s0
+    seclabel u:r:init:s0
     disabled
     oneshot

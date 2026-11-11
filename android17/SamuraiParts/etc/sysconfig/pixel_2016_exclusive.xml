@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<config>
+    <feature name="com.google.android.apps.photos.NEXUS_PRELOAD" />
+    <feature name="com.google.android.apps.photos.nexus_preload" />
+    <feature name="com.google.android.feature.PIXEL_EXPERIENCE" />
+    <feature name="com.google.android.feature.GOOGLE_BUILD" />
+    <feature name="com.google.android.feature.GOOGLE_EXPERIENCE" />
+</config>

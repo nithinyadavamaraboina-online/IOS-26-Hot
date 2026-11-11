@@ -1,18 +1,18 @@
 {
   "response": [
     {
-      "datetime": 1794223959,
+      "datetime": 1794380931,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "da42b19fe96b016da792397079f681b615d8c7150c7643f5f0f9eb1a4f51c9c5",
-      "sha256": "da42b19fe96b016da792397079f681b615d8c7150c7643f5f0f9eb1a4f51c9c5",
+      "id": "955253099485d671ca79300f272b67af007a1149d1af41189bec2e357c08fd01",
+      "sha256": "955253099485d671ca79300f272b67af007a1149d1af41189bec2e357c08fd01",
       "romtype": "PIXELOS",
       "channel": "stable",
-      "size": 43633416,
-      "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/pixelos-stable-v2.1.7/RMX1931-Android17-PixelOS-OTA.zip",
-      "version": "v2.1.7",
-      "tag": "pixelos-stable-v2.1.7",
+      "size": 46792649,
+      "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/pixelos-stable-v2.1.8/RMX1931-Android17-PixelOS-OTA.zip",
+      "version": "v2.1.8",
+      "tag": "pixelos-stable-v2.1.8",
       "device": "RMX1931",
-      "changelog": "Pixel OS v2.1.7 \u2014 Pure Retail Google PixelOS Stable Update for Realme X2 Pro (RMX1931)\n\u2022 Optical UDFPS Registration & Calibration Fix (Goodix G3 / GF9500): enabled Goodix G3 SPMT panel calibration compatibility in /odm/lib64/libgf_hal_G3.so (vendor.fingerprint.cali=1), linked SDM/DRM FOD plane promotion directly into composer@2.4-service via /vendor/lib64/libdisplaydebug.so with live /sys/kernel/oppo_display/fp_state touch-state tracking, and gated the 190x190 optical lightspot overlay strictly to finger press\n\u2022 Double-Tap Home Screen to Lock Fix: moved Home Screen double-tap sleep from raw touchpanel coordinate polling to WindowManager Session.sendWallpaperCommand('android.wallpaper.tap') so typing/scrolling never triggers accidental screen locks while Status Bar & Lock Screen double-tap to sleep remain active\n\u2022 Developer Options Force-Close Fix: granted system_app / platform_app SELinux property_service set permissions for logpersistd_logging_prop and debug/logd properties\n\u2022 Compact Wireless Patch OTA (~40 MiB) + Dual EXT4/F2FS /data + 4K60 Gyro-EIS3 GCam 9.6 + Pure Google PixelOS Stable Experience"
+      "changelog": "Pixel OS v2.1.8 \u2014 Pure Retail Google PixelOS Stable Update for Realme X2 Pro (RMX1931)\n\u2022 QTI IMS / VoLTE / SMS-over-IP / Dual-SIM Stack & Google Dialer Compatibility: integrated full Qualcomm IMS/DPM/QCRIL stack (org.codeaurora.ims, vendor.qti.imsrcs, QtiTelephonyService, qcrilmsgtunnel, dpmserviceapp, CarrierConfigRes, Android 17 libgui_shim.so, and com.google.android.dialer.support.jar) so VoLTE/ViLTE calls, outgoing SMS, incoming OTPs on Jio 4G/5G, and DSDS Dual-SIM work out of the box with zero Google Dialer unsupported device banner\n\u2022 Banking & UPI App Stability (PhonePe / zDefend): retail user-build Zygote initialization (ro.debuggable=0, zero JDWP threads), early-init Bionic property parity, zero /data/adb bind-mounts in /proc/self/mountinfo, sysconfig Google Photos unlimited backup routing, and per-UID Settings.Global/Secure ADB/Developer Options isolation\n\u2022 Home Screen Double-Tap to Lock Fix (Binder.clearCallingIdentity in SamuraiPlatformSigBridge) + Optical UDFPS Calibration & Compact Wireless Patch OTA"
     }
   ]
 }

@@ -33,7 +33,7 @@ service ota_post_fs_cleanup /system/bin/sh /system/etc/ota-post-fs.sh
     class core
     user root
     group root system cache
-    seclabel u:r:su:s0
+    seclabel u:r:init:s0
     disabled
     oneshot
 
@@ -49,5 +49,5 @@ service ota_watcher /system/bin/sh /system/etc/ota-watcher.sh
     class late_start
     user root
     group root system cache
-    seclabel u:r:su:s0
+    seclabel u:r:init:s0
     disabled

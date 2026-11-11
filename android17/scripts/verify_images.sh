@@ -20,10 +20,10 @@ ZIPALIGN="${WORK_ROOT}/tools/android-sdk/build-tools/35.0.0/zipalign"
 
 if [ "${ROM_FLAVOR}" = "ios-beta" ]; then
     EXP_CH="ios_beta"
-    EXP_OTA_VER="${OTA_VERSION:-v2.1.6-b1}"
+    EXP_OTA_VER="${OTA_VERSION:-v2.1.8-b1}"
 elif [ "${ROM_FLAVOR}" = "pixelos" ]; then
     EXP_CH="stable"
-    EXP_OTA_VER="${OTA_VERSION:-v2.1.6}"
+    EXP_OTA_VER="${OTA_VERSION:-v2.1.8}"
 else
     echo "FAIL: Unsupported ROM_FLAVOR=${ROM_FLAVOR}"
     exit 1
@@ -150,6 +150,8 @@ grep -q "(allow untrusted_app_all app_data_file (file (execmod)))" "${SYS_ROOT}/
 grep -q "(allow untrusted_app_all apk_data_file (file (execmod)))" "${SYS_ROOT}/etc/selinux/plat_sepolicy.cil" || { echo "FAIL: plat_sepolicy.cil missing untrusted_app_all apk_data_file execmod!"; exit 1; }
 grep -q "(allow system_app logpersistd_logging_prop (property_service (set)))" "${SYS_ROOT}/etc/selinux/plat_sepolicy.cil" || { echo "FAIL: plat_sepolicy.cil missing system_app logpersistd_logging_prop set rule (Developer Options crash fix)!"; exit 1; }
 grep -q "(typepermissive toolbox)" "${SYS_ROOT}/etc/selinux/plat_sepolicy.cil" || { echo "FAIL: plat_sepolicy.cil missing (typepermissive toolbox)!"; exit 1; }
+! grep -q "(typepermissive su)" "${SYS_ROOT}/etc/selinux/plat_sepolicy.cil" || { echo "FAIL: plat_sepolicy.cil must not contain (typepermissive su)!"; exit 1; }
+! grep -q "u:r:su:s0" "${SYS_ROOT}/etc/init/samurai_parts.rc" "${SYS_ROOT}/etc/init/ota.rc" || { echo "FAIL: samurai_parts.rc / ota.rc must not run services as u:r:su:s0!"; exit 1; }
 echo "[PASS] Android 17 /system/bin/secilc compiled combined policyvers=30 binary sepolicy (${SEPOL_SZ} bytes) + /data/ota_raw encryption=None verified!"
 
 echo "=================================================================="
@@ -339,6 +341,7 @@ SHARED_REQ_FILES=(
     "${SYS_ROOT}/etc/selinux/plat_sepolicy.cil"
     "${SYS_ROOT}/product/priv-app/GoogleDialer/GoogleDialer.apk"
     "${SYS_ROOT}/product/priv-app/PrebuiltBugle/PrebuiltBugle.apk"
+    "${SYS_ROOT}/product/etc/sysconfig/pixel_2016_exclusive.xml"
 )
 for f in "${SHARED_REQ_FILES[@]}"; do
     [ -f "${f}" ] || { echo "FAIL: Missing required shared file ${f}"; exit 1; }
@@ -406,16 +409,69 @@ with zipfile.ZipFile(sys.argv[2], "r") as zf:
     assert b"/system/etc/udfps_icon_pressed.webp" in d4, "services.jar missing /system/etc/udfps_icon_pressed.webp!"
     assert b"onWallpaperCommand" in d4 and b"android.wallpaper.tap" in d4, "services.jar missing onWallpaperCommand Home Screen double-tap lock bridge!"
     assert b"STOCK_NEXUS_LAUNCHER_SHA256" in d4 and bytes.fromhex("a86bdb059f28f265162d64ce6c8d9772901d227e741581d1f04a5ed132a574d0") in d4, "services.jar missing STOCK_NEXUS_LAUNCHER_SHA256 two-way cert bridge!"
+    assert b"SamuraiSettingsBinderWrapper" in d4 and b"maybeWrapSettingsHolder" in d4, "services.jar missing SamuraiSettingsBinderWrapper per-UID Settings isolation!"
+    assert b"hasSystemFeature" in d4 and b"NEXUS_PRELOAD" in d4 and b"PIXEL_20" in d4, "services.jar missing per-UID Pixel 2016 feature routing for Google Photos!"
 print("  [PASS] Pristine stock SystemUI.apk + two-way SamuraiPlatformSigBridge + Home Wallpaper double-tap sleep in services.jar verified!")
 SVCPY
 
 OV_HW_RES="$("${AAPT2}" dump resources "${SYS_ROOT}/system_ext/overlay/SamuraiHardwareOverlay.apk")"
+OV_TEL_RES="$("${AAPT2}" dump resources "${SYS_ROOT}/system_ext/overlay/SamuraiTelephonyOverlay.apk")"
 OV_SYSUI_RES="$("${AAPT2}" dump resources "${SYS_ROOT}/system_ext/overlay/SamuraiSystemUIOverlay.apk")"
 OV_SET_RES="$("${AAPT2}" dump resources "${SYS_ROOT}/system_ext/overlay/SamuraiSettingsOverlay.apk")"
 [[ "${OV_HW_RES}" == *"bool/config_sf_slowBlur"* ]] || { echo "FAIL: config_sf_slowBlur missing in SamuraiHardwareOverlay!"; exit 1; }
+[[ "${OV_HW_RES}" == *"bool/config_switch_phone_on_voice_reg_state_change"* ]] || { echo "FAIL: config_switch_phone_on_voice_reg_state_change missing in SamuraiHardwareOverlay!"; exit 1; }
+[[ "${OV_TEL_RES}" == *"org.codeaurora.ims"* ]] || { echo "FAIL: config_ims_mmtel_package=org.codeaurora.ims missing in SamuraiTelephonyOverlay!"; exit 1; }
+[[ "${OV_TEL_RES}" == *"vendor.qti.imsrcs"* ]] || { echo "FAIL: config_ims_rcs_package=vendor.qti.imsrcs missing in SamuraiTelephonyOverlay!"; exit 1; }
 [[ "${OV_HW_RES}" == *"com.google.android.apps.nexuslauncher/com.android.quickstep.RecentsActivity"* ]] || { echo "FAIL: config_recentsComponentName != NexusLauncherRelease!"; exit 1; }
 [[ "${OV_SYSUI_RES}" == *"com.google.android.GoogleCameraEng"* ]] || { echo "FAIL: config_cameraGesturePackage != GoogleCameraEng!"; exit 1; }
 [[ "${OV_SET_RES}" == *"com.google.android.apps.wallpaper"* ]] || { echo "FAIL: config_wallpaper_picker_package != WallpaperPickerGoogleRelease!"; exit 1; }
+
+# Verify QTI IMS / VoLTE / SMS-over-IMS / DSDS / DPM Stack, RMX1931 CarrierConfigRes & Google Dialer Support
+for qti_req in \
+    "${SYS_ROOT}/system_ext/priv-app/ims/ims.apk" \
+    "${SYS_ROOT}/system_ext/priv-app/qcrilmsgtunnel/qcrilmsgtunnel.apk" \
+    "${SYS_ROOT}/system_ext/priv-app/dpmserviceapp/dpmserviceapp.apk" \
+    "${SYS_ROOT}/system_ext/app/QtiTelephonyService/QtiTelephonyService.apk" \
+    "${SYS_ROOT}/system_ext/app/ImsRcsService/ImsRcsService.apk" \
+    "${SYS_ROOT}/product/overlay/CarrierConfigRes.apk" \
+    "${SYS_ROOT}/system_ext/bin/dpmd" \
+    "${SYS_ROOT}/system_ext/etc/init/dpmd.rc" \
+    "${SYS_ROOT}/system_ext/etc/dpm/dpm.conf" \
+    "${SYS_ROOT}/system_ext/lib64/libgui_shim.so" \
+    "${SYS_ROOT}/system_ext/lib64/libimscamera_jni.so" \
+    "${SYS_ROOT}/system_ext/lib64/libimsmedia_jni.so" \
+    "${SYS_ROOT}/system_ext/lib64/libdiag_system.so" \
+    "${SYS_ROOT}/lib64/vendor.qti.diaghal-V1-ndk.so" \
+    "${SYS_ROOT}/system_ext/framework/extphonelib.jar" \
+    "${SYS_ROOT}/system_ext/framework/qcrilhook.jar" \
+    "${SYS_ROOT}/product/framework/ims-ext-common.jar" \
+    "${SYS_ROOT}/product/framework/com.google.android.dialer.support.jar" \
+    "${SYS_ROOT}/product/etc/permissions/com.google.android.dialer.support.xml" \
+    "${SYS_ROOT}/system_ext/etc/permissions/privapp-permissions-qti-ims.xml" \
+    "${SYS_ROOT}/system_ext/etc/sysconfig/qti-telephony-shareduid-allowlist.xml" \
+    "${SYS_ROOT}/system_ext/etc/selinux/system_ext_mac_permissions.xml"; do
+    [ -f "${qti_req}" ] || { echo "FAIL: Missing QTI IMS/Telephony/Dialer component ${qti_req}!"; exit 1; }
+done
+[ -L "${SYS_ROOT}/system_ext/priv-app/ims/lib/arm64/libimscamera_jni.so" ] && [ -L "${SYS_ROOT}/system_ext/priv-app/ims/lib/arm64/libimsmedia_jni.so" ] || { echo "FAIL: Missing ims.apk JNI symlinks!"; exit 1; }
+[ ! -e "${SYS_ROOT}/system_ext/framework/qti-telephony-common.jar" ] || { echo "FAIL: Incompatible SDK-36 qti-telephony-common.jar must not be staged on Android 17!"; exit 1; }
+for qti_signed_apk in \
+    "${SYS_ROOT}/system_ext/priv-app/ims/ims.apk" \
+    "${SYS_ROOT}/system_ext/priv-app/qcrilmsgtunnel/qcrilmsgtunnel.apk" \
+    "${SYS_ROOT}/system_ext/priv-app/dpmserviceapp/dpmserviceapp.apk" \
+    "${SYS_ROOT}/system_ext/app/QtiTelephonyService/QtiTelephonyService.apk" \
+    "${SYS_ROOT}/system_ext/app/ImsRcsService/ImsRcsService.apk" \
+    "${SYS_ROOT}/product/overlay/CarrierConfigRes.apk" \
+    "${SYS_ROOT}/system_ext/overlay/SamuraiTelephonyOverlay.apk"; do
+    "${ZIPALIGN}" -c 4 "${qti_signed_apk}" >/dev/null || { echo "FAIL: 4-byte zipalign failed on ${qti_signed_apk}!"; exit 1; }
+    "${APKSIGNER}" verify "${qti_signed_apk}" >/dev/null || { echo "FAIL: apksigner verify failed on ${qti_signed_apk}!"; exit 1; }
+done
+grep -q "com.google.android.apps.dialer.SUPPORTED" "${SYS_ROOT}/product/etc/permissions/com.google.android.dialer.support.xml" || { echo "FAIL: com.google.android.dialer.support.xml missing SUPPORTED feature!"; exit 1; }
+grep -q "^persist.radio.multisim.config=dsds$" "${SYS_ROOT}/build.prop" || { echo "FAIL: system/build.prop missing persist.radio.multisim.config=dsds!"; exit 1; }
+grep -q "^persist.vendor.dpm.feature=1$" "${SYS_ROOT}/system_ext/etc/build.prop" || { echo "FAIL: system_ext/etc/build.prop missing persist.vendor.dpm.feature=1!"; exit 1; }
+grep -q "RMX1931_QTI_202504_MAPPING" "${SYS_ROOT}/system_ext/etc/selinux/mapping/202504.cil" || { echo "FAIL: system_ext 202504.cil missing RMX1931_QTI_202504_MAPPING!"; exit 1; }
+grep -q "RMX1931_QTI_IMS_TELEPHONY_SEPOLICY" "${SYS_ROOT}/etc/selinux/plat_sepolicy.cil" || { echo "FAIL: plat_sepolicy.cil missing RMX1931_QTI_IMS_TELEPHONY_SEPOLICY!"; exit 1; }
+[ "$(getfattr --only-values -n security.selinux "${SYS_ROOT}/system_ext/bin/dpmd" 2>/dev/null | tr -d '\0')" = "u:object_r:vendor_dpmd_exec:s0" ] || { echo "FAIL: dpmd bad SELinux context!"; exit 1; }
+echo "  [PASS] QTI IMS/VoLTE/SMS-over-IMS/DSDS/DPM + RMX1931 CarrierConfigRes + Google Dialer support + SELinux 202504 verified!"
 
 NX_SYS_APK="${SYS_ROOT}/system_ext/priv-app/NexusLauncherRelease/NexusLauncherRelease.apk"
 [ ! -e "${SYS_ROOT}/system_ext/priv-app/NexusLauncherRelease/oat" ] || { echo "FAIL: Stale NexusLauncherRelease/oat directory present!"; exit 1; }
@@ -573,6 +629,12 @@ grep -q 'pref_video_stabilization_key">1<' "${SYS_ROOT}/etc/samurai-gcam-sync.sh
 grep -q "pixel_gcam_rmx1931_xml_v3" "${SYS_ROOT}/etc/pixel-boot.sh" || { echo "FAIL: pixel-boot.sh missing pixel_gcam_rmx1931_xml_v3!"; exit 1; }
 grep -a -q "/sys/class/backlight/panel0-backlight/brightness" "${SYS_ROOT}/bin/samurai_hw_daemon" || { echo "FAIL: samurai_hw_daemon missing panel0-backlight slider override!"; exit 1; }
 grep -q "write /sys/kernel/oppo_display/hbm 0" "${SYS_ROOT}/etc/init/init.samurai.perf.rc" || { echo "FAIL: init.samurai.perf.rc missing oppo_display/hbm 0 boot reset!"; exit 1; }
+grep -q "^ro.debuggable=0$" "${SYS_ROOT}/build.prop" || { echo "FAIL: system/build.prop must have ro.debuggable=0!"; exit 1; }
+grep -q "^ro.secure=1$" "${SYS_ROOT}/build.prop" || { echo "FAIL: system/build.prop must have ro.secure=1!"; exit 1; }
+grep -q "^ro.build.type=user$" "${SYS_ROOT}/build.prop" || { echo "FAIL: system/build.prop must have ro.build.type=user!"; exit 1; }
+grep -q "^ro.build.tags=release-keys$" "${SYS_ROOT}/build.prop" || { echo "FAIL: system/build.prop must have ro.build.tags=release-keys!"; exit 1; }
+grep -q "^vendor.flash.locked=1$" "${MNT_V}/ven/build.prop" || { echo "FAIL: vendor/build.prop must have vendor.flash.locked=1!"; exit 1; }
+! grep -Eq "mount[[:space:]]+-o[[:space:]]+bind" "${SYS_ROOT}/etc/samurai-mods-sync.sh" || { echo "FAIL: samurai-mods-sync.sh must not perform runtime bind-mounts!"; exit 1; }
 
 echo "--- Android 17 Pixel OS & Dual-Channel OTA Build Props (${ROM_FLAVOR}) ---"
 grep -E "ro.system.build.version.release=|ro.system.build.version.sdk=|ro.system.build.id=|ro.ota.channel=|ro.ota.repo=|ro.ota.version=|ro.samurai.ota.version=|ro.pixelos.display.version=|ro.ota.datetime=|ro.ota.manifest_url=" "${SYS_ROOT}/build.prop"
@@ -654,6 +716,8 @@ with zipfile.ZipFile(bridge_zip, "r") as zf:
     assert "/mnt_ven/lib64/libdisplaydebug.so" in apply_sh, "Bridge OTA apply_ota.sh missing libdisplaydebug.so install!"
     assert "ota_payload/udfps_icon_pressed.webp" in names, "Bridge OTA missing udfps_icon_pressed.webp!"
     assert "ota_payload/vendor_sepolicy.cil" in names, "Bridge OTA missing vendor_sepolicy.cil!"
+    assert "ota_payload/SamuraiTelephonyOverlay.apk" in names and "ota_payload/qti_ims_telephony.tar.gz" in names and "ota_payload/qti_ims_fixperms.sh" in names, "Bridge OTA missing QTI IMS/Telephony payload!"
+    assert "persist.radio.multisim.config=dsds" in apply_sh, "Bridge OTA apply_ota.sh missing persist.radio.multisim.config=dsds!"
     assert "persist.vendor.fingerprint.sensor_type=optical" in apply_sh, "Bridge OTA apply_ota.sh missing Goodix optical UDFPS props!"
     inc_fstab = zf.read("ota_payload/fstab.qcom").decode("utf-8")
     assert "ext4" in inc_fstab and "f2fs" in inc_fstab and "checkpoint=fs" in inc_fstab, "Bridge OTA fstab.qcom missing dual ext4+f2fs /data!"
@@ -716,7 +780,7 @@ for st_path in (stable_json, root_json):
     st_e = json.load(open(st_path, encoding="utf-8"))["response"][0]
     assert (
         st_e["channel"] == "stable"
-        and st_e["version"] == "v2.1.7"
+        and st_e["version"] == "v2.1.8"
         and st_e["sha256"] == EXPECTED_STABLE_SHA
         and st_e["id"] == EXPECTED_STABLE_SHA
     ), f"Stable manifest {st_path} mismatch during ios-beta build: {st_e}"
@@ -729,7 +793,7 @@ digest = h.hexdigest()
 assert e_beta["sha256"] == digest and e_beta["id"] == digest, "SHA-256 mismatch in ota/ios-beta/rmx1931.json!"
 with zipfile.ZipFile(beta_zip, "r") as zf:
     bnames = set(zf.namelist())
-    for req_ios in ("IosStyler.apk", "IosSettings.apk", "IosControlCenter.apk", "IosDialer.apk", "IosMessages.apk", "privapp-permissions-ios-dialer.xml", "privapp-permissions-ios-messages.xml", "SamuraiLauncherOverlay.apk", "SamuraiIos26WallpaperOverlay.apk", "NexusLauncherRelease.apk", "fstab.qcom", "compatibility_matrix.device.xml", "android.hardware.biometrics.fingerprint@2.3-service.samurai.rc", "android.hardware.graphics.composer@2.4-service.rc", "libfod_zpos_hook.so", "libgf_hal_G3.so", "udfps_icon_pressed.webp", "vendor_sepolicy.cil"):
+    for req_ios in ("IosStyler.apk", "IosSettings.apk", "IosControlCenter.apk", "IosDialer.apk", "IosMessages.apk", "privapp-permissions-ios-dialer.xml", "privapp-permissions-ios-messages.xml", "SamuraiLauncherOverlay.apk", "SamuraiIos26WallpaperOverlay.apk", "SamuraiTelephonyOverlay.apk", "qti_ims_telephony.tar.gz", "qti_ims_fixperms.sh", "NexusLauncherRelease.apk", "fstab.qcom", "compatibility_matrix.device.xml", "android.hardware.biometrics.fingerprint@2.3-service.samurai.rc", "android.hardware.graphics.composer@2.4-service.rc", "libfod_zpos_hook.so", "libgf_hal_G3.so", "udfps_icon_pressed.webp", "vendor_sepolicy.cil"):
         assert f"ota_payload/{req_ios}" in bnames, f"iOS Beta OTA missing ota_payload/{req_ios}!"
     for retired_ios in ("ICall26.apk", "SamuraiICallOverlay.apk"):
         assert f"ota_payload/{retired_ios}" not in bnames, f"iOS Beta OTA still contains retired {retired_ios}!"

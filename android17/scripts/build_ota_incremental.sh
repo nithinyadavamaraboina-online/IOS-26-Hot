@@ -36,14 +36,14 @@ done
 
 if [ "${ROM_FLAVOR}" = "ios-beta" ]; then
     OTA_CHANNEL="ios_beta"
-    OTA_VERSION="${OTA_VERSION:-v2.1.7-b1}"
+    OTA_VERSION="${OTA_VERSION:-v2.1.8-b1}"
     OTA_RELEASE_TAG="${OTA_RELEASE_TAG:-ios-beta-${OTA_VERSION}}"
     ROM_FILENAME="${ROM_FILENAME:-RMX1931-Android17-iOSBeta-OTA-${OTA_VERSION}.zip}"
     MANIFEST_OUT="${MANIFEST_OUT:-${REPO_ROOT}/ota/ios-beta/rmx1931.json}"
     OTA_MANIFEST_PROP_URL="https://raw.githubusercontent.com/${OTA_GITHUB_REPO}/main/ota/ios-beta/rmx1931.json"
 elif [ "${ROM_FLAVOR}" = "pixelos" ]; then
     OTA_CHANNEL="stable"
-    OTA_VERSION="${OTA_VERSION:-v2.1.7}"
+    OTA_VERSION="${OTA_VERSION:-v2.1.8}"
     OTA_RELEASE_TAG="${OTA_RELEASE_TAG:-pixelos-stable-${OTA_VERSION}}"
     ROM_FILENAME="${ROM_FILENAME:-RMX1931-Android17-PixelOS-OTA.zip}"
     MANIFEST_OUT="${MANIFEST_OUT:-${REPO_ROOT}/ota/rmx1931.json}"
@@ -123,6 +123,83 @@ cp -f "${VEN_MNT}/etc/selinux/vendor_property_contexts" "${INC_STAGE}/ota_payloa
 for vcfg in fstab.qcom media_codecs.xml media_codecs_c2.xml media_codecs_performance_c2.xml media_codecs_performance.xml powerhint.json; do
     cp -f "${VEN_MNT}/etc/${vcfg}" "${INC_STAGE}/ota_payload/${vcfg}"
 done
+python3 - "${SCRIPT_DIR}" "${SYS_SUB}" "${INC_STAGE}/ota_payload/qti_ims_telephony.tar.gz" "${INC_STAGE}/ota_payload/qti_ims_fixperms.sh" <<'QTIPACKPY'
+import os, stat, sys, tarfile
+script_dir, sys_sub, out_tgz, out_sh = sys.argv[1:]
+sys.path.insert(0, script_dir)
+import qti_ims_telephony_a17 as qti
+
+rels = [
+    "etc/sysconfig/qti_whitelist.xml",
+    "system_ext/etc/sysconfig/qti-telephony-shareduid-allowlist.xml",
+    "lib64/vendor.qti.diaghal-V1-ndk.so",
+    "product/etc/permissions/com.google.android.dialer.support.xml",
+    "product/framework/com.google.android.dialer.support.jar",
+    "system_ext/bin/dpmd",
+    "system_ext/etc/build.prop",
+    "system_ext/etc/dpm/dpm.conf",
+    "system_ext/etc/init/dpmd.rc",
+    "system_ext/etc/permissions/privapp-permissions-qti-ims.xml",
+    "system_ext/etc/selinux/mapping/202504.cil",
+    "system_ext/etc/selinux/system_ext_file_contexts",
+    "system_ext/etc/selinux/system_ext_mac_permissions.xml",
+    "system_ext/etc/selinux/system_ext_property_contexts",
+    "system_ext/etc/selinux/system_ext_seapp_contexts",
+    "system_ext/etc/selinux/system_ext_service_contexts",
+    "system_ext/etc/sysconfig/qti_whitelist_system_ext.xml",
+    "system_ext/lib64/libgui_shim.so",
+    "system_ext/priv-app/ims/lib/arm64/libimscamera_jni.so",
+    "system_ext/priv-app/ims/lib/arm64/libimsmedia_jni.so",
+]
+for _, tgt_rel, _ in qti.QTI_APKS_TO_RESIGN:
+    rels.append(tgt_rel)
+for j in qti.QTI_SYSTEM_EXT_JARS:
+    rels.append(f"system_ext/framework/{j}")
+for j in qti.QTI_PRODUCT_JARS:
+    rels.append(f"product/framework/{j}")
+for x in qti.QTI_SYSTEM_EXT_PERM_XMLS:
+    rels.append(f"system_ext/etc/permissions/{x}")
+for x in qti.QTI_PRODUCT_PERM_XMLS:
+    rels.append(f"product/etc/permissions/{x}")
+for so in qti.QTI_SYSTEM_EXT_LIB64_DONOR:
+    rels.append(f"system_ext/lib64/{so}")
+
+dirs_seen = set()
+ordered_dirs = []
+for r in sorted(set(rels)):
+    full = os.path.join(sys_sub, r)
+    if not os.path.lexists(full):
+        raise SystemExit(f"ERROR: Missing QTI/Dialer file in system.raw.img: {full}")
+    parts = r.split("/")[:-1]
+    cur = ""
+    for p in parts:
+        cur = f"{cur}/{p}" if cur else p
+        if cur not in dirs_seen:
+            dirs_seen.add(cur)
+            ordered_dirs.append(cur)
+
+sh_lines = ["#!/sbin/sh", "set -e", 'SYS="$1"']
+with tarfile.open(out_tgz, "w:gz", format=tarfile.GNU_FORMAT) as tf:
+    for d in ordered_dirs:
+        dfull = os.path.join(sys_sub, d)
+        st = os.lstat(dfull)
+        ctx = os.getxattr(dfull, "security.selinux", follow_symlinks=False).rstrip(b"\x00").decode("ascii")
+        sh_lines.append(f'mkdir -p "$SYS/{d}" && chown {st.st_uid}:{st.st_gid} "$SYS/{d}" && chmod {stat.S_IMODE(st.st_mode):04o} "$SYS/{d}" && chcon {ctx} "$SYS/{d}"')
+    for r in sorted(set(rels)):
+        full = os.path.join(sys_sub, r)
+        st = os.lstat(full)
+        ctx = os.getxattr(full, "security.selinux", follow_symlinks=False).rstrip(b"\x00").decode("ascii")
+        tf.add(full, arcname=r, recursive=False)
+        if stat.S_ISLNK(st.st_mode):
+            sh_lines.append(f'chown -h {st.st_uid}:{st.st_gid} "$SYS/{r}" && chcon -h {ctx} "$SYS/{r}"')
+        else:
+            sh_lines.append(f'chown {st.st_uid}:{st.st_gid} "$SYS/{r}" && chmod {stat.S_IMODE(st.st_mode):04o} "$SYS/{r}" && chcon {ctx} "$SYS/{r}"')
+
+with open(out_sh, "w", encoding="utf-8", newline="\n") as f:
+    f.write("\n".join(sh_lines) + "\n")
+os.chmod(out_sh, 0o755)
+print(f"[ota-inc] Packed {len(set(rels))} QTI IMS/VoLTE/SMS/DSDS & Dialer files -> {out_tgz} ({os.path.getsize(out_tgz)/(1024*1024):.2f} MiB)")
+QTIPACKPY
 umount -lf "${SYS_MNT}"
 umount -lf "${VEN_MNT}"
 umount -lf "${ODM_MNT}"
@@ -134,6 +211,7 @@ STOCK_SYSUI_APK="${DL_DIR}/pixel_a17_cp3a/SystemUI_stock.apk"
 
 cp -f "${UPD_BIN}" "${INC_STAGE}/META-INF/com/google/android/update-binary"
 cp -f "${APKS_DIR}/SamuraiHardwareOverlay.apk" "${INC_STAGE}/ota_payload/"
+cp -f "${APKS_DIR}/SamuraiTelephonyOverlay.apk" "${INC_STAGE}/ota_payload/"
 cp -f "${APKS_DIR}/SamuraiSystemUIOverlay.apk" "${INC_STAGE}/ota_payload/"
 cp -f "${APKS_DIR}/SamuraiSettingsOverlay.apk" "${INC_STAGE}/ota_payload/"
 cp -f "${APKS_DIR}/SamuraiHidePillOverlay.apk" "${INC_STAGE}/ota_payload/"
@@ -181,6 +259,7 @@ cp -f "${A17_ROOT}/SamuraiOTAUpdater/etc/default-permissions/default-permissions
 cp -f "${A17_ROOT}/SamuraiParts/etc/permissions/privapp-permissions-pixel-launcher.xml" "${INC_STAGE}/ota_payload/"
 cp -f "${A17_ROOT}/SamuraiParts/etc/default-permissions/default-permissions-pixel-launcher.xml" "${INC_STAGE}/ota_payload/"
 cp -f "${A17_ROOT}/SamuraiParts/etc/default-permissions/default-permissions-gcam.xml" "${INC_STAGE}/ota_payload/"
+cp -f "${A17_ROOT}/SamuraiParts/etc/sysconfig/pixel_2016_exclusive.xml" "${INC_STAGE}/ota_payload/"
 cp -f "${BIN_DIR}/samurai_hw_daemon" "${INC_STAGE}/ota_payload/"
 cp -f "${BIN_DIR}/samurai_ota_bcb" "${INC_STAGE}/ota_payload/"
 cp -f "${BIN_DIR}/bpfloader_wrap" "${INC_STAGE}/ota_payload/"
@@ -266,6 +345,7 @@ fi
 # 1. Install Shared High-Priority Static & Dynamic RRO Overlays
 for rro in \
     SamuraiHardwareOverlay.apk \
+    SamuraiTelephonyOverlay.apk \
     SamuraiSystemUIOverlay.apk \
     SamuraiSettingsOverlay.apk \
     SamuraiHidePillOverlay.apk; do
@@ -274,6 +354,21 @@ for rro in \
     chmod 0644 "\$SYS/system_ext/overlay/\$rro"
     chcon u:object_r:system_file:s0 "\$SYS/system_ext/overlay/\$rro"
 done
+
+# 1b. Install QTI IMS / VoLTE / SMS-over-IMS / DSDS / DPM Stack, RMX1931 CarrierConfigRes & Google Dialer Support
+if [ -f /tmp/ota_payload/qti_ims_telephony.tar.gz ]; then
+    rm -rf "\$SYS/system_ext/priv-app/ims/oat" \
+           "\$SYS/system_ext/priv-app/qcrilmsgtunnel/oat" \
+           "\$SYS/system_ext/priv-app/dpmserviceapp/oat" \
+           "\$SYS/system_ext/app/QtiTelephonyService/oat" \
+           "\$SYS/system_ext/app/ImsRcsService/oat" \
+           "\$SYS/system_ext/framework/oat" \
+           "\$SYS/product/framework/oat" \
+           "\$SYS/system_ext/framework/qti-telephony-common.jar" 2>/dev/null || true
+    tar -xzf /tmp/ota_payload/qti_ims_telephony.tar.gz -C "\$SYS"
+    chmod 0755 /tmp/ota_payload/qti_ims_fixperms.sh
+    /sbin/sh /tmp/ota_payload/qti_ims_fixperms.sh "\$SYS"
+fi
 
 if [ "\$FLAVOR" = "ios-beta" ]; then
     for rro in \
@@ -295,8 +390,8 @@ rm -rf "\$SYS/system_ext/priv-app/SystemUI/oat"
 rm -f "\$SYS/framework/oat/arm64/services.art" "\$SYS/framework/oat/arm64/services.odex" "\$SYS/framework/oat/arm64/services.vdex"
 mkdir -p "\$SYS/priv-app/SamuraiParts" "\$SYS/priv-app/SamuraiOTAUpdater" "\$SYS/system_ext/priv-app/SystemUI" \
          "\$SYS/etc/permissions" "\$SYS/system_ext/etc/permissions" "\$SYS/etc/default-permissions" \
-         "\$SYS/etc/sysconfig" "\$SYS/etc/samurai-mods"
-for pdir in "\$SYS/priv-app/SamuraiParts" "\$SYS/priv-app/SamuraiOTAUpdater" "\$SYS/system_ext/priv-app/SystemUI" "\$SYS/etc/samurai-mods"; do
+         "\$SYS/etc/sysconfig" "\$SYS/product/etc/sysconfig" "\$SYS/etc/samurai-mods"
+for pdir in "\$SYS/priv-app/SamuraiParts" "\$SYS/priv-app/SamuraiOTAUpdater" "\$SYS/system_ext/priv-app/SystemUI" "\$SYS/product/etc/sysconfig" "\$SYS/etc/samurai-mods"; do
     chown 0:0 "\$pdir"
     chmod 0755 "\$pdir"
     chcon u:object_r:system_file:s0 "\$pdir"
@@ -358,6 +453,7 @@ cp -f /tmp/ota_payload/privapp-permissions-pixel-launcher.xml "\$SYS/system_ext/
 cp -f /tmp/ota_payload/default-permissions-pixel-launcher.xml "\$SYS/etc/default-permissions/default-permissions-pixel-launcher.xml"
 cp -f /tmp/ota_payload/default-permissions-gcam.xml "\$SYS/etc/default-permissions/default-permissions-gcam.xml"
 cp -f /tmp/ota_payload/pixel-contextual-search.xml "\$SYS/etc/sysconfig/pixel-contextual-search.xml"
+cp -f /tmp/ota_payload/pixel_2016_exclusive.xml "\$SYS/product/etc/sysconfig/pixel_2016_exclusive.xml"
 cp -f /tmp/ota_payload/samurai-mod-helper.jar "\$SYS/framework/samurai-mod-helper.jar"
 cp -f /tmp/ota_payload/udfps_icon_pressed.webp "\$SYS/etc/udfps_icon_pressed.webp"
 cp -f /tmp/ota_payload/gcastartup_uaf_fix.bin "\$SYS/etc/samurai-mods/gcastartup_uaf_fix.bin"
@@ -455,6 +551,7 @@ for apk in \
     "\$SYS/etc/default-permissions/default-permissions-pixel-launcher.xml" \
     "\$SYS/etc/default-permissions/default-permissions-gcam.xml" \
     "\$SYS/etc/sysconfig/pixel-contextual-search.xml" \
+    "\$SYS/product/etc/sysconfig/pixel_2016_exclusive.xml" \
     "\$SYS/framework/samurai-mod-helper.jar" \
     "\$SYS/etc/udfps_icon_pressed.webp" \
     "\$SYS/etc/samurai-mods/gcastartup_uaf_fix.bin" \
@@ -725,10 +822,28 @@ fi
 BLUR_DISABLED="1"
 [ "\$FLAVOR" = "ios-beta" ] && BLUR_DISABLED="0"
 SPROP="\$SYS/build.prop"
-sed -i '/^ro\.ota\.channel=/d; /^ro\.ota\.version=/d; /^ro\.samurai\.ota\.version=/d; /^ro\.pixelos\.display\.version=/d; /^ro\.ota\.datetime=/d; /^ro\.ota\.repo=/d; /^ro\.ota\.manifest_url=/d; /^persist\.zygote\.zygote_next\.start_on_boot=/d; /^ro\.sf\.lcd_density=/d; /^ro\.surface_flinger\.supports_background_blur=/d; /^ro\.surface_flinger\.blur_disabled_by_default=/d; /^persist\.sys\.sf\.disable_blurs=/d; /^ro\.sf\.blurs_are_expensive=/d; /^debug\.sf\.disable_client_composition_cache=/d; /^debug\.renderengine\.backend=/d; /^debug\.hwui\.renderer=/d; /^debug\.sf\.auto_latch_unsignaled=/d; /^debug\.sf\.latch_unsignaled=/d; /^debug\.sf\.enable_gl_backpressure=/d; /^debug\.sf\.enable_hwc_vds=/d; /^debug\.sf\.predict_hwc_composition_strategy=/d; /^media\.stagefright\.thumbnail\.prefer_hw_codecs=/d; /^dalvik\.vm\.systemuicompilerfilter=/d; /^ro\.surface_flinger\.use_content_detection_for_refresh_rate=/d; /^ro\.surface_flinger\.set_idle_timer_ms=/d; /^ro\.surface_flinger\.set_touch_timer_ms=/d; /^dalvik\.vm\.dex2oat-threads=/d; /^dalvik\.vm\.background-dex2oat-threads=/d; /^dalvik\.vm\.background-dex2oat-cpu-set=/d; /^ro\.build\.product=/d; /^ro\.product\.brand=/d; /^vendor\.camera\.aux\.packagelist=/d; /^persist\.vendor\.camera\.privapp\.list=/d; /^persist\.vendor\.fingerprint\./d; /^persist\.vendor\.qfp=/d; /^vendor\.flash\.locked=/d; /^debug\.sf\.early_/d; /^debug\.sf\.high_fps_/d' "\$SPROP"
+sed -i '/^ro\.debuggable=/d; /^ro\.secure=/d; /^ro\.adb\.secure=/d; /^ro\.build\.type=/d; /^ro\.build\.tags=/d; /^ro\.build\.flavor=/d; /^ro\.build\.description=/d; /^ro\.build\.fingerprint=/d; /^ro\.system\.build\.fingerprint=/d; /^ro\.ota\.channel=/d; /^ro\.ota\.version=/d; /^ro\.samurai\.ota\.version=/d; /^ro\.pixelos\.display\.version=/d; /^ro\.ota\.datetime=/d; /^ro\.ota\.repo=/d; /^ro\.ota\.manifest_url=/d; /^persist\.zygote\.zygote_next\.start_on_boot=/d; /^ro\.sf\.lcd_density=/d; /^ro\.surface_flinger\.supports_background_blur=/d; /^ro\.surface_flinger\.blur_disabled_by_default=/d; /^persist\.sys\.sf\.disable_blurs=/d; /^ro\.sf\.blurs_are_expensive=/d; /^debug\.sf\.disable_client_composition_cache=/d; /^debug\.renderengine\.backend=/d; /^debug\.hwui\.renderer=/d; /^debug\.sf\.auto_latch_unsignaled=/d; /^debug\.sf\.latch_unsignaled=/d; /^debug\.sf\.enable_gl_backpressure=/d; /^debug\.sf\.enable_hwc_vds=/d; /^debug\.sf\.predict_hwc_composition_strategy=/d; /^media\.stagefright\.thumbnail\.prefer_hw_codecs=/d; /^dalvik\.vm\.systemuicompilerfilter=/d; /^ro\.surface_flinger\.use_content_detection_for_refresh_rate=/d; /^ro\.surface_flinger\.set_idle_timer_ms=/d; /^ro\.surface_flinger\.set_touch_timer_ms=/d; /^dalvik\.vm\.dex2oat-threads=/d; /^dalvik\.vm\.background-dex2oat-threads=/d; /^dalvik\.vm\.background-dex2oat-cpu-set=/d; /^ro\.build\.product=/d; /^ro\.product\.brand=/d; /^vendor\.camera\.aux\.packagelist=/d; /^persist\.vendor\.camera\.privapp\.list=/d; /^persist\.vendor\.fingerprint\./d; /^persist\.vendor\.qfp=/d; /^vendor\.flash\.locked=/d; /^debug\.sf\.early_/d; /^debug\.sf\.high_fps_/d; /^persist\.radio\.multisim\.config=/d; /^ro\.telephony\.default_network=/d; /^persist\.vendor\.radio\.apm_sim_not_pwdn=/d; /^persist\.vendor\.radio\.sib16_support=/d; /^persist\.vendor\.radio\.custom_ecc=/d; /^persist\.vendor\.radio\.rat_on=/d; /^persist\.dbg\.volte_avail_ovr=/d; /^persist\.dbg\.vt_avail_ovr=/d; /^persist\.dbg\.wfc_avail_ovr=/d' "\$SPROP"
 cat >> "\$SPROP" <<SPROPEOF
+ro.debuggable=0
+ro.adb.secure=0
+ro.secure=1
+ro.build.type=user
+ro.build.tags=release-keys
+ro.build.flavor=caiman-user
+ro.build.description=caiman-user 17 CP3A.260905.010 16176746 release-keys
+ro.build.fingerprint=google/caiman/caiman:17/CP3A.260905.010/16176746:user/release-keys
+ro.system.build.fingerprint=google/caiman/caiman:17/CP3A.260905.010/16176746:user/release-keys
 ro.build.product=RMX1931
 ro.product.brand=realme
+persist.radio.multisim.config=dsds
+ro.telephony.default_network=22,22
+persist.vendor.radio.apm_sim_not_pwdn=1
+persist.vendor.radio.sib16_support=1
+persist.vendor.radio.custom_ecc=1
+persist.vendor.radio.rat_on=combine
+persist.dbg.volte_avail_ovr=1
+persist.dbg.vt_avail_ovr=1
+persist.dbg.wfc_avail_ovr=1
 vendor.camera.aux.packagelist=org.codeaurora.snapcam,com.android.camera,com.android.camera2,com.google.android.GoogleCamera,com.google.android.GoogleCameraEng,app.grapheneos.camera
 persist.vendor.camera.privapp.list=org.codeaurora.snapcam,com.android.camera,com.android.camera2,com.google.android.GoogleCamera,com.google.android.GoogleCameraEng,app.grapheneos.camera
 persist.vendor.fingerprint.sensor_type=optical
@@ -738,7 +853,7 @@ persist.vendor.fingerprint.optical.iconsize=190
 persist.vendor.fingerprint.fp_id=G_OPTICAL_G3
 persist.vendor.fingerprint.version=Goodix
 persist.vendor.qfp=true
-vendor.flash.locked=0
+vendor.flash.locked=1
 persist.zygote.zygote_next.start_on_boot=true
 ro.sf.lcd_density=420
 ro.surface_flinger.supports_background_blur=1
@@ -771,6 +886,21 @@ chown 0:0 "\$SPROP"
 chmod 0600 "\$SPROP"
 chcon u:object_r:system_file:s0 "\$SPROP"
 
+PPROP="\$SYS/product/etc/build.prop"
+if [ -f "\$PPROP" ]; then
+    sed -i '/^ro\.product\.build\.type=/d; /^ro\.product\.build\.tags=/d; /^ro\.product\.build\.fingerprint=/d; /^ro\.build\.flavor=/d; /^ro\.build\.description=/d' "\$PPROP"
+    cat >> "\$PPROP" <<'PPROPEOF'
+ro.product.build.type=user
+ro.product.build.tags=release-keys
+ro.product.build.fingerprint=google/caiman/caiman:17/CP3A.260905.010/16176746:user/release-keys
+ro.build.flavor=caiman-user
+ro.build.description=caiman-user 17 CP3A.260905.010 16176746 release-keys
+PPROPEOF
+    chown 0:0 "\$PPROP"
+    chmod 0600 "\$PPROP"
+    chcon u:object_r:system_file:s0 "\$PPROP"
+fi
+
 # 5. Update /vendor/build.prop
 VPROP="/mnt_ven/build.prop"
 sed -i '/^ro\.build\.product=/d; /^ro\.product\.brand=/d; /^vendor\.camera\.aux\.packagelist=/d; /^persist\.vendor\.camera\.privapp\.list=/d; /^persist\.vendor\.fingerprint\./d; /^persist\.vendor\.qfp=/d; /^vendor\.flash\.locked=/d; /^ro\.sf\.lcd_density=/d; /^ro\.surface_flinger\.supports_background_blur=/d; /^ro\.surface_flinger\.blur_disabled_by_default=/d; /^ro\.sf\.blurs_are_expensive=/d; /^debug\.sf\.disable_client_composition_cache=/d; /^debug\.renderengine\.backend=/d; /^debug\.hwui\.renderer=/d; /^debug\.sf\.auto_latch_unsignaled=/d; /^debug\.sf\.latch_unsignaled=/d; /^debug\.sf\.enable_gl_backpressure=/d; /^debug\.sf\.enable_hwc_vds=/d; /^debug\.sf\.predict_hwc_composition_strategy=/d; /^media\.stagefright\.thumbnail\.prefer_hw_codecs=/d; /^ro\.surface_flinger\.has_wide_color_display=/d; /^persist\.sys\.sf\.color_saturation=/d; /^ro\.surface_flinger\.use_content_detection_for_refresh_rate=/d; /^ro\.surface_flinger\.set_touch_timer_ms=/d; /^ro\.surface_flinger\.set_idle_timer_ms=/d' "\$VPROP"
@@ -788,7 +918,7 @@ persist.vendor.fingerprint.optical.iconsize=190
 persist.vendor.fingerprint.fp_id=G_OPTICAL_G3
 persist.vendor.fingerprint.version=Goodix
 persist.vendor.qfp=true
-vendor.flash.locked=0
+vendor.flash.locked=1
 ro.sf.lcd_density=420
 ro.surface_flinger.supports_background_blur=1
 ro.surface_flinger.blur_disabled_by_default=true
@@ -817,6 +947,8 @@ umount /mnt_ven
 # 6. Clear RRO/Package/Launcher Icon Caches if /data is decrypted (ota-post-fs.sh handles FBE cross-channel migration!)
 if [ -d /data/system/users ] || [ -d /data/data ]; then
     rm -rf /data/resource-cache/* /data/dalvik-cache/* /data/system/package_cache/* \
+           /data/user_de/0/com.android.phone/files/carrierconfig-*.xml \
+           /data/data/com.android.phone/files/carrierconfig-*.xml \
            /data/data/com.google.android.apps.nexuslauncher/databases/app_icons.db* \
            /data/data/com.google.android.apps.nexuslauncher/cache/* \
            /data/data/com.google.android.apps.nexuslauncher/code_cache/* \
@@ -824,7 +956,11 @@ if [ -d /data/system/users ] || [ -d /data/data ]; then
            /data/user/0/com.google.android.apps.nexuslauncher/cache/* \
            /data/user_de/0/com.google.android.apps.nexuslauncher/databases/app_icons.db* \
            /data/user_de/0/com.google.android.apps.nexuslauncher/cache/* \
-           /data/ota_package/adblock /data/ota_package/hw/adblock.prop 2>/dev/null || true
+           /data/adb/samurai_mods /data/ota_package/adblock /data/ota_package/hw/adblock.prop 2>/dev/null || true
+    if [ -d /data/adb ]; then
+        chown 0:0 /data/adb 2>/dev/null || true
+        chmod 0700 /data/adb 2>/dev/null || true
+    fi
     rm -f /data/ota_package/install.ready /data/ota_package/apply.status 2>/dev/null || true
     sync
 fi
@@ -834,7 +970,7 @@ dd if=/dev/zero of="\$MISC_DEV" bs=4096 count=1 conv=fsync 2>/dev/null || dd if=
 sync
 EOF
 chmod 0755 "${INC_STAGE}/ota_payload/apply_ota.sh"
-sed -i 's/\r$//' "${INC_STAGE}/ota_payload/apply_ota.sh" "${INC_STAGE}/ota_payload/pixel-boot.sh" "${INC_STAGE}/ota_payload/ota-watcher.sh" "${INC_STAGE}/ota_payload/ota-post-fs.sh" "${INC_STAGE}/ota_payload/samurai-mods-sync.sh" "${INC_STAGE}/ota_payload/samurai-gcam-sync.sh" "${INC_STAGE}/ota_payload/netbpfload.rc" "${INC_STAGE}/ota_payload/zygote_next64.rc" "${INC_STAGE}/ota_payload/ota.rc" "${INC_STAGE}/ota_payload/samurai_parts.rc" "${INC_STAGE}/ota_payload/init.samurai.perf.rc" "${INC_STAGE}/ota_payload/init.samurai.bootguard.rc"
+sed -i 's/\r$//' "${INC_STAGE}/ota_payload/apply_ota.sh" "${INC_STAGE}/ota_payload/qti_ims_fixperms.sh" "${INC_STAGE}/ota_payload/pixel-boot.sh" "${INC_STAGE}/ota_payload/ota-watcher.sh" "${INC_STAGE}/ota_payload/ota-post-fs.sh" "${INC_STAGE}/ota_payload/samurai-mods-sync.sh" "${INC_STAGE}/ota_payload/samurai-gcam-sync.sh" "${INC_STAGE}/ota_payload/netbpfload.rc" "${INC_STAGE}/ota_payload/zygote_next64.rc" "${INC_STAGE}/ota_payload/ota.rc" "${INC_STAGE}/ota_payload/samurai_parts.rc" "${INC_STAGE}/ota_payload/init.samurai.perf.rc" "${INC_STAGE}/ota_payload/init.samurai.bootguard.rc"
 
 cat > "${INC_STAGE}/META-INF/com/google/android/updater-script" <<EOF
 assert(getprop("ro.product.device") == "samurai" || getprop("ro.build.product") == "samurai" ||
@@ -863,7 +999,10 @@ fi
 cat >> "${INC_STAGE}/META-INF/com/google/android/updater-script" <<'EOF'
 run_program("/sbin/sh", "-c", "rm -rf /tmp/ota_payload && mkdir -p /tmp/ota_payload");
 package_extract_file("ota_payload/SamuraiHardwareOverlay.apk", "/tmp/ota_payload/SamuraiHardwareOverlay.apk");
+package_extract_file("ota_payload/SamuraiTelephonyOverlay.apk", "/tmp/ota_payload/SamuraiTelephonyOverlay.apk");
 package_extract_file("ota_payload/SamuraiSystemUIOverlay.apk", "/tmp/ota_payload/SamuraiSystemUIOverlay.apk");
+package_extract_file("ota_payload/qti_ims_telephony.tar.gz", "/tmp/ota_payload/qti_ims_telephony.tar.gz");
+package_extract_file("ota_payload/qti_ims_fixperms.sh", "/tmp/ota_payload/qti_ims_fixperms.sh");
 package_extract_file("ota_payload/SamuraiSettingsOverlay.apk", "/tmp/ota_payload/SamuraiSettingsOverlay.apk");
 package_extract_file("ota_payload/SamuraiHidePillOverlay.apk", "/tmp/ota_payload/SamuraiHidePillOverlay.apk");
 package_extract_file("ota_payload/SamuraiParts.apk", "/tmp/ota_payload/SamuraiParts.apk");
@@ -1018,6 +1157,7 @@ else
         "SamuraiOTAUpdater.apk"
         "SamuraiParts.apk"
         "SamuraiHardwareOverlay.apk"
+        "SamuraiTelephonyOverlay.apk"
         "SamuraiSystemUIOverlay.apk"
         "SamuraiSettingsOverlay.apk"
         "SamuraiHidePillOverlay.apk"
@@ -1041,17 +1181,16 @@ out_path, dt, fname, sha, size, url, ver, tag, channel = sys.argv[1:]
 if channel == "ios_beta":
     changelog = (
         f"Pixel OS {ver} — Opt-In iOS Style UI Beta on Android 17 for Realme X2 Pro (RMX1931)\n"
-        "• Optical UDFPS Registration & Calibration Fix (Goodix G3 / GF9500): enabled Goodix G3 SPMT panel calibration compatibility in /odm/lib64/libgf_hal_G3.so (vendor.fingerprint.cali=1), linked SDM/DRM FOD plane promotion directly into composer@2.4-service via /vendor/lib64/libdisplaydebug.so with live /sys/kernel/oppo_display/fp_state touch-state tracking, and gated the 190x190 optical lightspot overlay strictly to finger press\n"
-        "• Full Android 17 Developer Options Launcher in iOS Settings: added 'Open Full Android Developer Options' at the top of Developer Options in IosSettings so users can access all 80+ native Android 17 Developer Options alongside the iOS quick toggles\n"
-        "• Direct Single-Swipe Primary Bouncer Unlock + Single-Press Optical UDFPS Aperture (IosControlCenter v1.7.7-ios26) & 90Hz AGSL Liquid Glass Sheets"
+        "• QTI IMS / VoLTE / SMS-over-IP / Dual-SIM Stack & Google Dialer Compatibility: integrated full Qualcomm IMS/DPM/QCRIL stack (org.codeaurora.ims, vendor.qti.imsrcs, QtiTelephonyService, qcrilmsgtunnel, dpmserviceapp, CarrierConfigRes, Android 17 libgui_shim.so, and com.google.android.dialer.support.jar) so VoLTE/ViLTE calls, outgoing SMS, incoming OTPs on Jio 4G/5G, and DSDS Dual-SIM work out of the box with zero Google Dialer unsupported device banner\n"
+        "• Banking & UPI App Stability (PhonePe / zDefend): retail user-build Zygote initialization (ro.debuggable=0, zero JDWP threads), early-init Bionic property parity, zero /data/adb bind-mounts in /proc/self/mountinfo, sysconfig Google Photos unlimited backup routing, and per-UID Settings.Global/Secure ADB/Developer Options isolation\n"
+        "• Home Screen Double-Tap to Lock Fix (Binder.clearCallingIdentity in SamuraiPlatformSigBridge) + Optical UDFPS Calibration & Direct Single-Swipe Primary Bouncer Unlock"
     )
 else:
     changelog = (
         f"Pixel OS {ver} — Pure Retail Google PixelOS Stable Update for Realme X2 Pro (RMX1931)\n"
-        "• Optical UDFPS Registration & Calibration Fix (Goodix G3 / GF9500): enabled Goodix G3 SPMT panel calibration compatibility in /odm/lib64/libgf_hal_G3.so (vendor.fingerprint.cali=1), linked SDM/DRM FOD plane promotion directly into composer@2.4-service via /vendor/lib64/libdisplaydebug.so with live /sys/kernel/oppo_display/fp_state touch-state tracking, and gated the 190x190 optical lightspot overlay strictly to finger press\n"
-        "• Double-Tap Home Screen to Lock Fix: moved Home Screen double-tap sleep from raw touchpanel coordinate polling to WindowManager Session.sendWallpaperCommand('android.wallpaper.tap') so typing/scrolling never triggers accidental screen locks while Status Bar & Lock Screen double-tap to sleep remain active\n"
-        "• Developer Options Force-Close Fix: granted system_app / platform_app SELinux property_service set permissions for logpersistd_logging_prop and debug/logd properties\n"
-        "• Compact Wireless Patch OTA (~40 MiB) + Dual EXT4/F2FS /data + 4K60 Gyro-EIS3 GCam 9.6 + Pure Google PixelOS Stable Experience"
+        "• QTI IMS / VoLTE / SMS-over-IP / Dual-SIM Stack & Google Dialer Compatibility: integrated full Qualcomm IMS/DPM/QCRIL stack (org.codeaurora.ims, vendor.qti.imsrcs, QtiTelephonyService, qcrilmsgtunnel, dpmserviceapp, CarrierConfigRes, Android 17 libgui_shim.so, and com.google.android.dialer.support.jar) so VoLTE/ViLTE calls, outgoing SMS, incoming OTPs on Jio 4G/5G, and DSDS Dual-SIM work out of the box with zero Google Dialer unsupported device banner\n"
+        "• Banking & UPI App Stability (PhonePe / zDefend): retail user-build Zygote initialization (ro.debuggable=0, zero JDWP threads), early-init Bionic property parity, zero /data/adb bind-mounts in /proc/self/mountinfo, sysconfig Google Photos unlimited backup routing, and per-UID Settings.Global/Secure ADB/Developer Options isolation\n"
+        "• Home Screen Double-Tap to Lock Fix (Binder.clearCallingIdentity in SamuraiPlatformSigBridge) + Optical UDFPS Calibration & Compact Wireless Patch OTA"
     )
 
 manifest = {

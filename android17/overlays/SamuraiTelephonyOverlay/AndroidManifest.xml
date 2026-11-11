@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.realme.samurai.overlay.telephony"
+    android:versionCode="17030"
+    android:versionName="v1.4">
+    <application android:hasCode="false" android:label="RMX1931 QTI IMS &amp; Telephony Overlay" />
+    <overlay
+        android:targetPackage="com.android.phone"
+        android:isStatic="true"
+        android:priority="950" />
+</manifest>

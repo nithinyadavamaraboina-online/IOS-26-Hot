@@ -2,9 +2,15 @@
 on early-init
     setprop persist.sys.disable_rescue true
     setprop persist.sys.enable_rescue 0
+    setprop ro.boot.verifiedbootstate green
+    setprop ro.boot.veritymode enforcing
+    setprop ro.boot.flash.locked 1
+    setprop ro.boot.vbmeta.device_state locked
+    exec - root root -- /system/bin/samurai_hw_daemon --early-props
 
 on post-fs-data
     setprop persist.sys.disable_rescue true
+    exec - root root -- /system/bin/samurai_hw_daemon --early-props
 
 on property:sys.boot_completed=1
     setprop sys.samurai.boot_healthy 1

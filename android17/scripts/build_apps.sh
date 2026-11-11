@@ -132,14 +132,40 @@ void pthread_mutex_lock(void) {}
 void pthread_mutex_unlock(void) {}
 void pthread_create(void) {}
 void pthread_detach(void) {}
+void* malloc(unsigned long n) { (void)n; return 0; }
+void free(void* p) { (void)p; }
+void* memcpy(void* d, const void* s, unsigned long n) { (void)s; (void)n; return d; }
+void* memset(void* d, int c, unsigned long n) { (void)c; (void)n; return d; }
+unsigned long strlen(const char* s) { (void)s; return 0; }
 EOF
 cat << 'EOF' > "${BIONIC_STUBS}/libdl_stub.c"
 void dlsym(void) {}
+EOF
+cat << 'EOF' > "${BIONIC_STUBS}/libgui_stub.S"
+.text
+.globl _ZN7android7SurfaceC1ERKNS_2spINS_22IGraphicBufferProducerEEEbRKNS1_INS_7IBinderEEENSt3__18optionalINS2_13SurfaceConfigEEE
+.type _ZN7android7SurfaceC1ERKNS_2spINS_22IGraphicBufferProducerEEEbRKNS1_INS_7IBinderEEENSt3__18optionalINS2_13SurfaceConfigEEE, @function
+_ZN7android7SurfaceC1ERKNS_2spINS_22IGraphicBufferProducerEEEbRKNS1_INS_7IBinderEEENSt3__18optionalINS2_13SurfaceConfigEEE:
+    ret
+.globl _ZN7android21SurfaceComposerClient20createVirtualDisplayERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEEbbS9_jbf
+.type _ZN7android21SurfaceComposerClient20createVirtualDisplayERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEEbbS9_jbf, @function
+_ZN7android21SurfaceComposerClient20createVirtualDisplayERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEEbbS9_jbf:
+    ret
+.globl _ZN7android21SurfaceComposerClient21destroyVirtualDisplayERKNS_2spINS_7IBinderEEE
+.type _ZN7android21SurfaceComposerClient21destroyVirtualDisplayERKNS_2spINS_7IBinderEEE, @function
+_ZN7android21SurfaceComposerClient21destroyVirtualDisplayERKNS_2spINS_7IBinderEEE:
+    ret
+.globl _ZN7android21SurfaceComposerClient11Transaction5applyEbb
+.type _ZN7android21SurfaceComposerClient11Transaction5applyEbb, @function
+_ZN7android21SurfaceComposerClient11Transaction5applyEbb:
+    ret
 EOF
 clang --target=aarch64-linux-android30 -fuse-ld=lld -ffreestanding -nostdinc -fno-builtin -nostdlib -shared -fPIC \
     -Wl,-soname,libc.so -o "${BIONIC_STUBS}/libc.so" "${BIONIC_STUBS}/libc_stub.c"
 clang --target=aarch64-linux-android30 -fuse-ld=lld -ffreestanding -nostdinc -fno-builtin -nostdlib -shared -fPIC \
     -Wl,-soname,libdl.so -o "${BIONIC_STUBS}/libdl.so" "${BIONIC_STUBS}/libdl_stub.c"
+clang --target=aarch64-linux-android30 -fuse-ld=lld -ffreestanding -nostdinc -fno-builtin -nostdlib -shared -fPIC \
+    -Wl,-soname,libgui.so -o "${BIONIC_STUBS}/libgui.so" "${BIONIC_STUBS}/libgui_stub.S"
 clang --target=aarch64-linux-android30 -fuse-ld=lld -ffreestanding -nostdinc -fno-builtin -O2 -Wall -Wextra -Werror -nostdlib -shared -fPIC \
     -Wl,-soname,libdisplaydebug.so \
     -o "${OUT_BIN}/libfod_zpos_hook.so" \
@@ -148,9 +174,20 @@ clang --target=aarch64-linux-android30 -fuse-ld=lld -ffreestanding -nostdinc -fn
 llvm-strip "${OUT_BIN}/libfod_zpos_hook.so"
 chmod 0644 "${OUT_BIN}/libfod_zpos_hook.so"
 cp -f "${OUT_BIN}/libfod_zpos_hook.so" "${WORK_APKS}/libfod_zpos_hook.so"
+
+clang++ --target=aarch64-linux-android30 -fuse-ld=lld -ffreestanding -nostdinc -fno-builtin -fno-exceptions -fno-rtti \
+    -O2 -Wall -Wextra -Werror -nostdlib -shared -fPIC \
+    -Wl,-soname,libgui_shim.so -Wl,--no-undefined \
+    -o "${OUT_BIN}/libgui_shim.so" \
+    "${A17_ROOT}/shims/libgui_shim.cpp" \
+    -L"${BIONIC_STUBS}" -lgui -lc
+llvm-strip "${OUT_BIN}/libgui_shim.so"
+chmod 0644 "${OUT_BIN}/libgui_shim.so"
+cp -f "${OUT_BIN}/libgui_shim.so" "${WORK_APKS}/libgui_shim.so"
+
 cp -f "${A17_ROOT}/SamuraiParts/etc/udfps_icon_pressed.webp" "${OUT_ETC}/udfps_icon_pressed.webp"
 
-echo "=== [2/7] Building samurai-mod-helper.jar & Patched services.jar (Dual-Channel Signature Bridge) ==="
+echo "=== [2/7] Building samurai-mod-helper.jar, com.google.android.dialer.support.jar & Patched services.jar ==="
 HELPER_TMP="${APK_BUILD}/SamuraiModHelper"
 mkdir -p "${HELPER_TMP}/classes" "${HELPER_TMP}/dex"
 "${JAVA_HOME}/bin/javac" -Xlint:all -Werror -source 17 -target 17 \
@@ -159,13 +196,27 @@ mkdir -p "${HELPER_TMP}/classes" "${HELPER_TMP}/dex"
     "${A17_ROOT}/SamuraiParts/helper/src/com/realme/samurai/helper/SamuraiModHelper.java"
 mapfile -t helper_cls < <(find "${HELPER_TMP}/classes" -name "*.class" | sort)
 "${D8}" --lib "${PLATFORM_JAR}" --min-api 33 --output "${HELPER_TMP}/dex" "${helper_cls[@]}"
-(cd "${HELPER_TMP}/dex" && zip -q -0 "${OUT_FWK}/samurai-mod-helper.jar" classes*.dex)
+(cd "${HELPER_TMP}/dex" && zip -q -0 "${HELPER_TMP}/samurai-mod-helper-unaligned.jar" classes*.dex)
+"${ZIPALIGN}" -f 4 "${HELPER_TMP}/samurai-mod-helper-unaligned.jar" "${OUT_FWK}/samurai-mod-helper.jar"
+
+DIALER_SUP_TMP="${APK_BUILD}/DialerSupport"
+mkdir -p "${DIALER_SUP_TMP}/classes" "${DIALER_SUP_TMP}/dex"
+"${JAVA_HOME}/bin/javac" -Xlint:all -Werror -source 17 -target 17 \
+    -classpath "${PLATFORM_JAR}" \
+    -d "${DIALER_SUP_TMP}/classes" \
+    "${A17_ROOT}/shims/src/com/google/android/dialer/support/DialerSupport.java"
+mapfile -t dialer_sup_cls < <(find "${DIALER_SUP_TMP}/classes" -name "*.class" | sort)
+"${D8}" --lib "${PLATFORM_JAR}" --min-api 33 --output "${DIALER_SUP_TMP}/dex" "${dialer_sup_cls[@]}"
+(cd "${DIALER_SUP_TMP}/dex" && zip -q -0 "${DIALER_SUP_TMP}/dialer-support-unaligned.jar" classes*.dex)
+"${ZIPALIGN}" -f 4 "${DIALER_SUP_TMP}/dialer-support-unaligned.jar" "${OUT_FWK}/com.google.android.dialer.support.jar"
+cp -f "${OUT_FWK}/com.google.android.dialer.support.jar" "${WORK_APKS}/com.google.android.dialer.support.jar"
 
 python3 "${SCRIPT_DIR}/patch_services_a17.py"
 cp -f "${OUT_FWK}/services.jar" "${WORK_APKS}/services.jar"
 
 ls -lh "${OUT_BIN}/samurai_hw_daemon" "${OUT_BIN}/samurai_ota_bcb" "${OUT_BIN}/bpfloader_wrap" \
-       "${OUT_FWK}/samurai-mod-helper.jar" "${OUT_FWK}/services.jar"
+       "${OUT_BIN}/libgui_shim.so" "${OUT_FWK}/samurai-mod-helper.jar" \
+       "${OUT_FWK}/com.google.android.dialer.support.jar" "${OUT_FWK}/services.jar"
 
 build_kotlin_priv_apk() {
     local app_name="$1"
@@ -278,6 +329,12 @@ if [ "${ROM_FLAVOR}" = "pixelos" ]; then
     cp -a "${A17_ROOT}/overlays/SamuraiHidePillOverlay/res/." "${HP_STAGE}/"
     build_rro_apk "SamuraiHidePillOverlay" "${A17_ROOT}/overlays/SamuraiHidePillOverlay/AndroidManifest.xml" "${HP_STAGE}"
 
+    # 5. SamuraiTelephonyOverlay (Binds ImsResolver MMTEL->org.codeaurora.ims & RCS->vendor.qti.imsrcs)
+    TEL_STAGE="${APK_BUILD}/SamuraiTelephonyOverlay/res_stage"
+    mkdir -p "${TEL_STAGE}"
+    cp -a "${A17_ROOT}/overlays/SamuraiTelephonyOverlay/res/." "${TEL_STAGE}/"
+    build_rro_apk "SamuraiTelephonyOverlay" "${A17_ROOT}/overlays/SamuraiTelephonyOverlay/AndroidManifest.xml" "${TEL_STAGE}"
+
     echo "=== [6/7] Staging Unmodified Official Retail Google Pixel Launcher (NexusLauncherRelease.apk) ==="
     STOCK_NX="${WORK_ROOT}/downloads/pixel_a17_cp3a/NexusLauncherRelease.apk"
     [ -f "${STOCK_NX}" ] || STOCK_NX="/var/tmp/rmx1931-a17/downloads/pixel_a17_cp3a/NexusLauncherRelease.apk"
@@ -317,7 +374,8 @@ else
         SamuraiPhotosOverlay \
         SamuraiLauncherOverlay \
         SamuraiIos26WallpaperOverlay \
-        SamuraiHidePillOverlay; do
+        SamuraiHidePillOverlay \
+        SamuraiTelephonyOverlay; do
         RRO_SRC="${A17_ROOT}/overlays/${RRO_NAME}"
         RRO_STAGE="${APK_BUILD}/${RRO_NAME}/res_stage"
         mkdir -p "${RRO_STAGE}"
