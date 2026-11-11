@@ -189,10 +189,11 @@ with tarfile.open(out_tgz, "w:gz", format=tarfile.GNU_FORMAT) as tf:
         full = os.path.join(sys_sub, r)
         st = os.lstat(full)
         ctx = os.getxattr(full, "security.selinux", follow_symlinks=False).rstrip(b"\x00").decode("ascii")
-        tf.add(full, arcname=r, recursive=False)
         if stat.S_ISLNK(st.st_mode):
-            sh_lines.append(f'chown -h {st.st_uid}:{st.st_gid} "$SYS/{r}" && chcon -h {ctx} "$SYS/{r}"')
+            link_tgt = os.readlink(full)
+            sh_lines.append(f'ln -sfn "{link_tgt}" "$SYS/{r}" && chown -h {st.st_uid}:{st.st_gid} "$SYS/{r}" && chcon -h {ctx} "$SYS/{r}"')
         else:
+            tf.add(full, arcname=r, recursive=False)
             sh_lines.append(f'chown {st.st_uid}:{st.st_gid} "$SYS/{r}" && chmod {stat.S_IMODE(st.st_mode):04o} "$SYS/{r}" && chcon {ctx} "$SYS/{r}"')
 
 with open(out_sh, "w", encoding="utf-8", newline="\n") as f:
@@ -1026,6 +1027,7 @@ package_extract_file("ota_payload/privapp-permissions-pixel-launcher.xml", "/tmp
 package_extract_file("ota_payload/default-permissions-pixel-launcher.xml", "/tmp/ota_payload/default-permissions-pixel-launcher.xml");
 package_extract_file("ota_payload/default-permissions-gcam.xml", "/tmp/ota_payload/default-permissions-gcam.xml");
 package_extract_file("ota_payload/pixel-contextual-search.xml", "/tmp/ota_payload/pixel-contextual-search.xml");
+package_extract_file("ota_payload/pixel_2016_exclusive.xml", "/tmp/ota_payload/pixel_2016_exclusive.xml");
 package_extract_file("ota_payload/samurai_hw_daemon", "/tmp/ota_payload/samurai_hw_daemon");
 package_extract_file("ota_payload/samurai_ota_bcb", "/tmp/ota_payload/samurai_ota_bcb");
 package_extract_file("ota_payload/samurai-mod-helper.jar", "/tmp/ota_payload/samurai-mod-helper.jar");
