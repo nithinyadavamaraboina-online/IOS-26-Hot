@@ -1,13 +1,13 @@
 {
   "response": [
     {
-      "datetime": 1794382457,
+      "datetime": 1794399463,
       "filename": "RMX1931-Android17-iOSBeta-OTA-v2.1.8-b1.zip",
-      "id": "0e0116d2490646cbc79b79fa3a628922da41d5efc10f7f2ac9ded88fc04fa376",
-      "sha256": "0e0116d2490646cbc79b79fa3a628922da41d5efc10f7f2ac9ded88fc04fa376",
+      "id": "c85ca613a72ee79315886b94fd07f1a9af54ad50cbc5fa3d2bbca2657e3098c9",
+      "sha256": "c85ca613a72ee79315886b94fd07f1a9af54ad50cbc5fa3d2bbca2657e3098c9",
       "romtype": "PIXELOS",
       "channel": "ios_beta",
-      "size": 65236005,
+      "size": 65033600,
       "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/ios-beta-v2.1.8-b1/RMX1931-Android17-iOSBeta-OTA-v2.1.8-b1.zip",
       "version": "v2.1.8-b1",
       "tag": "ios-beta-v2.1.8-b1",

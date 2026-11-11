@@ -74,8 +74,8 @@ Grab the latest release files from the [**GitHub Releases Page**](https://github
 | Package | When to Use | Approximate Size |
 | :--- | :--- | :---: |
 | **`RMX1931-Android17-PixelOS-VendorBoot.zip`** | **First-time Clean Flash — Step 1 of 2** (Vendor + Dual `EXT4`/`F2FS` `/data` fstab + Goodix UDFPS ODM + Linux `4.14.356` Kernel + `dtbo` + `Flags=3` `vbmeta` + clean `/metadata` format) | `~858 MiB` |
-| **`RMX1931-Android17-PixelOS-System.zip`** | **First-time Clean Flash — Step 2 of 2** (Full Pure Google Pixel OS `v2.1.7` Stable + Google Apps + 4K60 EIS3 GCam 9.6 + Goodix G3 Optical UDFPS + Chromium/Brave Native Renderer Fix + Dual-Channel OTA Engine) | `~1.85 GiB` |
-| **`RMX1931-Android17-PixelOS-OTA.zip`** | **Wireless Pure Pixel OS Update (`v2.1.7`) — Existing Installs ONLY** (Downloaded automatically by **Settings → System → System update** on `v1.x` / `v2.0` / `v2.1.x` — **do NOT use for a first-time clean flash!**) | `~40 MiB` |
+| **`RMX1931-Android17-PixelOS-System.zip`** | **First-time Clean Flash — Step 2 of 2** (Full Pure Google Pixel OS `v2.1.8` Stable + Dual-SIM QTI VoLTE/SMS + Google Apps + 4K60 EIS3 GCam 9.6 + Goodix G3 Optical UDFPS + Dual-Channel OTA Engine) | `~1.85 GiB` |
+| **`RMX1931-Android17-PixelOS-OTA.zip`** | **Wireless Pure Pixel OS Update (`v2.1.8`) — Existing Installs ONLY** (Downloaded automatically by **Settings → System → System update** on `v1.x` / `v2.0` / `v2.1.x` — **do NOT use for a first-time clean flash!**) | `~45 MiB` |
 
 > **Why is the first-time Clean Flash split into `VendorBoot.zip` + `System.zip`?**
 > GitHub Releases enforces a `2.0 GiB` per-file limit, while a full Android 17 + GMS + GCam 9.6 image totals `~2.72 GiB`. Splitting Vendor/Boot (`[1/2]`) and System (`[2/2]`) keeps 100% of downloads fast and ad-free directly on GitHub Releases. You can queue both ZIPs together in TWRP in a single swipe — and **once installed, all future updates arrive as compact Wireless OTAs!**

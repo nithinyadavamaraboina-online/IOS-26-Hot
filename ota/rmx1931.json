@@ -1,13 +1,13 @@
 {
   "response": [
     {
-      "datetime": 1794380931,
+      "datetime": 1794398200,
       "filename": "RMX1931-Android17-PixelOS-OTA.zip",
-      "id": "79875b128f46b951050641f169d7b7944cc38fca66ea19a13c40a0274cc603ff",
-      "sha256": "79875b128f46b951050641f169d7b7944cc38fca66ea19a13c40a0274cc603ff",
+      "id": "806dbfd950c9cb3958473e38b8e8c3496d26c3a00d0b1798cd14b6050e1255b5",
+      "sha256": "806dbfd950c9cb3958473e38b8e8c3496d26c3a00d0b1798cd14b6050e1255b5",
       "romtype": "PIXELOS",
       "channel": "stable",
-      "size": 46937029,
+      "size": 46755817,
       "url": "https://github.com/nithinyadavamaraboina-online/PixelOS-Android17-RMX1931/releases/download/pixelos-stable-v2.1.8/RMX1931-Android17-PixelOS-OTA.zip",
       "version": "v2.1.8",
       "tag": "pixelos-stable-v2.1.8",

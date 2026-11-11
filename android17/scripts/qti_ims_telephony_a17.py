@@ -131,11 +131,6 @@ QTI_APKS_TO_RESIGN = [
         "qcrilmsgtunnel.apk",
     ),
     (
-        "system_ext/priv-app/dpmserviceapp/dpmserviceapp.apk",
-        "system_ext/priv-app/dpmserviceapp/dpmserviceapp.apk",
-        "dpmserviceapp.apk",
-    ),
-    (
         "system_ext/app/QtiTelephonyService/QtiTelephonyService.apk",
         "system_ext/app/QtiTelephonyService/QtiTelephonyService.apk",
         "QtiTelephonyService.apk",
@@ -175,10 +170,9 @@ PRIVAPP_PERMS_QTI_IMS_XML = """<?xml version="1.0" encoding="utf-8"?>
 
 SHAREDUID_ALLOWLIST_QTI_XML = """<?xml version="1.0" encoding="utf-8"?>
 <config>
-    <allow-non-preload-system-shareduids package="com.qualcomm.qcrilmsgtunnel" shareduid="android.uid.qtiphone" />
-    <allow-non-preload-system-shareduids package="com.qualcomm.qti.telephonyservice" shareduid="android.uid.qtiphone" />
-    <allow-non-preload-system-shareduids package="com.qti.dpmserviceapp" shareduid="android.uid.phone" />
-    <allow-non-preload-system-shareduids package="vendor.qti.imsrcs" shareduid="android.uid.phone" />
+    <allow-package-shareduid package="com.qualcomm.qcrilmsgtunnel" shareduid="android.uid.qtiphone" />
+    <allow-package-shareduid package="com.qualcomm.qti.telephonyservice" shareduid="android.uid.qtiphone" />
+    <allow-package-shareduid package="vendor.qti.imsrcs" shareduid="android.uid.phone" />
 </config>
 """
 
@@ -842,10 +836,13 @@ def inject_qti_ims_and_dialer_support(
             subprocess.run(["mount", "-o", "ro,loop", donor_img, mounted_tmp], check=True)
             donor_sys = os.path.join(mounted_tmp, "system")
 
-        # Defensive cleanup in case qti-telephony-common.jar was ever staged on a prior image
+        # Defensive cleanup in case qti-telephony-common.jar or dpmserviceapp was ever staged on a prior image
         stale_qti_tel = os.path.join(sys_sub, "system_ext/framework/qti-telephony-common.jar")
         if os.path.lexists(stale_qti_tel):
             os.unlink(stale_qti_tel)
+        stale_dpm_app = os.path.join(sys_sub, "system_ext/priv-app/dpmserviceapp")
+        if os.path.isdir(stale_dpm_app):
+            shutil.rmtree(stale_dpm_app)
 
         # 1. Re-sign and install the 5 QTI APKs + RMX1931 CarrierConfigRes.apk
         resigned = _prepare_resigned_apks(donor_sys, work_root, ks_path, zipalign, apksigner, cert_sha256)

@@ -120,10 +120,15 @@ public final class SamuraiPlatformSigBridge {
     /**
      * Returns:
      *   -1 -> Not a Samurai system signature transition; run stock `verifySignatures` logic.
-     *    0 -> Signatures are already trusted & identical (no compat rewrite needed).
-     *    1 -> Trusted system signature transition (`STOCK_PLATFORM <-> SAMURAI_OTA`) on a read-only
-     *         system package/sharedUser; return `true` from `verifySignatures` so PMS updates
-     *         `/data/system/packages.xml` cleanly on dirty OTA boot.
+     *    0 -> Trusted system/sharedUser signature bridge where the package itself did NOT change
+     *         existing signatures (`!pkgDiffers && sharedDiffers`, e.g. brand-new or steady-state
+     *         `vendor.qti.imsrcs` signed with `SAMURAI_OTA` joining `android.uid.phone` signed with
+     *         `STOCK_PLATFORM`). Returns `false` (`compatMatch = false`) from `verifySignatures` so
+     *         `commitReconciledScanResultLocked` does NOT call `KeySetManagerService.removeAppKeySetDataLPw`
+     *         on a package not yet in `mSettings.mPackages`.
+     *    1 -> Trusted system signature transition (`STOCK_PLATFORM <-> SAMURAI_OTA`) on an existing
+     *         package in `mSettings.mPackages` (`pkgDiffers == true`); returns `true` from
+     *         `verifySignatures` so `KSMS` decrements the prior signing keyset cleanly on dirty OTA.
      */
     public static int checkSystemSignatureTransition(
             PackageSetting pkgSetting,
@@ -172,8 +177,11 @@ public final class SamuraiPlatformSigBridge {
                 }
             }
 
-            if (pkgDiffers || sharedDiffers) {
+            if (pkgDiffers) {
                 return 1;
+            }
+            if (sharedDiffers) {
+                return 0;
             }
             return -1;
         } catch (Throwable ignored) {

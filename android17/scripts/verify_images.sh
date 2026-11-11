@@ -150,7 +150,10 @@ grep -q "(allow untrusted_app_all app_data_file (file (execmod)))" "${SYS_ROOT}/
 grep -q "(allow untrusted_app_all apk_data_file (file (execmod)))" "${SYS_ROOT}/etc/selinux/plat_sepolicy.cil" || { echo "FAIL: plat_sepolicy.cil missing untrusted_app_all apk_data_file execmod!"; exit 1; }
 grep -q "(allow system_app logpersistd_logging_prop (property_service (set)))" "${SYS_ROOT}/etc/selinux/plat_sepolicy.cil" || { echo "FAIL: plat_sepolicy.cil missing system_app logpersistd_logging_prop set rule (Developer Options crash fix)!"; exit 1; }
 grep -q "(typepermissive toolbox)" "${SYS_ROOT}/etc/selinux/plat_sepolicy.cil" || { echo "FAIL: plat_sepolicy.cil missing (typepermissive toolbox)!"; exit 1; }
+grep -q "(allow servicemanager init (binder (call transfer)))" "${SYS_ROOT}/etc/selinux/plat_sepolicy.cil" || { echo "FAIL: plat_sepolicy.cil missing servicemanager -> init binder transfer rule!"; exit 1; }
 ! grep -q "(typepermissive su)" "${SYS_ROOT}/etc/selinux/plat_sepolicy.cil" || { echo "FAIL: plat_sepolicy.cil must not contain (typepermissive su)!"; exit 1; }
+[ ! -e "${SYS_ROOT}/bin/su" ] && [ ! -e "${SYS_ROOT}/xbin/su" ] || { echo "FAIL: Userdebug su binary still present in system.raw.img!"; exit 1; }
+grep -q "samurai_hw_daemon --early-props" "${SYS_ROOT}/etc/init/init.samurai.bootguard.rc" || { echo "FAIL: init.samurai.bootguard.rc missing --early-props!"; exit 1; }
 ! grep -q "u:r:su:s0" "${SYS_ROOT}/etc/init/samurai_parts.rc" "${SYS_ROOT}/etc/init/ota.rc" || { echo "FAIL: samurai_parts.rc / ota.rc must not run services as u:r:su:s0!"; exit 1; }
 echo "[PASS] Android 17 /system/bin/secilc compiled combined policyvers=30 binary sepolicy (${SEPOL_SZ} bytes) + /data/ota_raw encryption=None verified!"
 
@@ -430,7 +433,6 @@ OV_SET_RES="$("${AAPT2}" dump resources "${SYS_ROOT}/system_ext/overlay/SamuraiS
 for qti_req in \
     "${SYS_ROOT}/system_ext/priv-app/ims/ims.apk" \
     "${SYS_ROOT}/system_ext/priv-app/qcrilmsgtunnel/qcrilmsgtunnel.apk" \
-    "${SYS_ROOT}/system_ext/priv-app/dpmserviceapp/dpmserviceapp.apk" \
     "${SYS_ROOT}/system_ext/app/QtiTelephonyService/QtiTelephonyService.apk" \
     "${SYS_ROOT}/system_ext/app/ImsRcsService/ImsRcsService.apk" \
     "${SYS_ROOT}/product/overlay/CarrierConfigRes.apk" \
@@ -457,7 +459,6 @@ done
 for qti_signed_apk in \
     "${SYS_ROOT}/system_ext/priv-app/ims/ims.apk" \
     "${SYS_ROOT}/system_ext/priv-app/qcrilmsgtunnel/qcrilmsgtunnel.apk" \
-    "${SYS_ROOT}/system_ext/priv-app/dpmserviceapp/dpmserviceapp.apk" \
     "${SYS_ROOT}/system_ext/app/QtiTelephonyService/QtiTelephonyService.apk" \
     "${SYS_ROOT}/system_ext/app/ImsRcsService/ImsRcsService.apk" \
     "${SYS_ROOT}/product/overlay/CarrierConfigRes.apk" \
@@ -629,8 +630,8 @@ grep -q 'pref_video_stabilization_key">1<' "${SYS_ROOT}/etc/samurai-gcam-sync.sh
 grep -q "pixel_gcam_rmx1931_xml_v3" "${SYS_ROOT}/etc/pixel-boot.sh" || { echo "FAIL: pixel-boot.sh missing pixel_gcam_rmx1931_xml_v3!"; exit 1; }
 grep -a -q "/sys/class/backlight/panel0-backlight/brightness" "${SYS_ROOT}/bin/samurai_hw_daemon" || { echo "FAIL: samurai_hw_daemon missing panel0-backlight slider override!"; exit 1; }
 grep -q "write /sys/kernel/oppo_display/hbm 0" "${SYS_ROOT}/etc/init/init.samurai.perf.rc" || { echo "FAIL: init.samurai.perf.rc missing oppo_display/hbm 0 boot reset!"; exit 1; }
-grep -q "^ro.debuggable=0$" "${SYS_ROOT}/build.prop" || { echo "FAIL: system/build.prop must have ro.debuggable=0!"; exit 1; }
-grep -q "^ro.secure=1$" "${SYS_ROOT}/build.prop" || { echo "FAIL: system/build.prop must have ro.secure=1!"; exit 1; }
+grep -q "^ro.debuggable=1$" "${SYS_ROOT}/build.prop" || { echo "FAIL: system/build.prop must have ro.debuggable=1!"; exit 1; }
+grep -q "^ro.secure=0$" "${SYS_ROOT}/build.prop" || { echo "FAIL: system/build.prop must have ro.secure=0!"; exit 1; }
 grep -q "^ro.build.type=user$" "${SYS_ROOT}/build.prop" || { echo "FAIL: system/build.prop must have ro.build.type=user!"; exit 1; }
 grep -q "^ro.build.tags=release-keys$" "${SYS_ROOT}/build.prop" || { echo "FAIL: system/build.prop must have ro.build.tags=release-keys!"; exit 1; }
 grep -q "^vendor.flash.locked=1$" "${MNT_V}/ven/build.prop" || { echo "FAIL: vendor/build.prop must have vendor.flash.locked=1!"; exit 1; }
@@ -716,6 +717,7 @@ with zipfile.ZipFile(bridge_zip, "r") as zf:
     assert "/mnt_ven/lib64/libdisplaydebug.so" in apply_sh, "Bridge OTA apply_ota.sh missing libdisplaydebug.so install!"
     assert "ota_payload/udfps_icon_pressed.webp" in names, "Bridge OTA missing udfps_icon_pressed.webp!"
     assert "ota_payload/vendor_sepolicy.cil" in names, "Bridge OTA missing vendor_sepolicy.cil!"
+    assert "ota_payload/init.rmx.adb.rc" in names and "bin/su" in apply_sh, "Bridge OTA missing init.rmx.adb.rc or bin/su cleanup!"
     assert "ota_payload/SamuraiTelephonyOverlay.apk" in names and "ota_payload/qti_ims_telephony.tar.gz" in names and "ota_payload/qti_ims_fixperms.sh" in names, "Bridge OTA missing QTI IMS/Telephony payload!"
     assert "persist.radio.multisim.config=dsds" in apply_sh, "Bridge OTA apply_ota.sh missing persist.radio.multisim.config=dsds!"
     assert "persist.vendor.fingerprint.sensor_type=optical" in apply_sh, "Bridge OTA apply_ota.sh missing Goodix optical UDFPS props!"

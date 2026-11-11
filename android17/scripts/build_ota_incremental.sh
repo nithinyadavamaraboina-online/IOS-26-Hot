@@ -92,6 +92,7 @@ cp -f "${SYS_SUB}/etc/bpf_netd_414.o" "${INC_STAGE}/ota_payload/bpf_netd_414.o"
 cp -f "${SYS_SUB}/lib64/libnetd_updatable_414.so" "${INC_STAGE}/ota_payload/libnetd_updatable_414.so"
 cp -f "${SYS_SUB}/lib64/libservice-connectivity_414.so" "${INC_STAGE}/ota_payload/libservice-connectivity_414.so"
 cp -f "${SYS_SUB}/etc/init/netbpfload.rc" "${INC_STAGE}/ota_payload/netbpfload.rc"
+cp -f "${SYS_SUB}/etc/init/init.rmx.adb.rc" "${INC_STAGE}/ota_payload/init.rmx.adb.rc"
 cp -f "${SYS_SUB}/etc/init/zygote_next64.rc" "${INC_STAGE}/ota_payload/zygote_next64.rc"
 cp -f "${SYS_SUB}/lib64/libmeminfo.so" "${INC_STAGE}/ota_payload/libmeminfo.so"
 cp -f "${SYS_SUB}/lib64/libzygote_sys.dylib.so" "${INC_STAGE}/ota_payload/libzygote_sys.dylib.so"
@@ -321,7 +322,7 @@ rm -rf "\$SYS/product/app/Camera2" "\$SYS/product/app/Calendar" "\$SYS/app/Basic
        "\$SYS/app/IosDialer" "\$SYS/app/ICall26" "\$SYS/app/IosMessages"
 rm -rf "\$SYS/priv-app/IosClock" "\$SYS/etc/permissions/privapp-permissions-ios-clock.xml" "\$SYS/app/IosCalculator" "\$SYS/app/IosNotes" "\$SYS/app/IosWeather"
 rm -rf "\$SYS/product/app/Photos/oat" "\$SYS/product/app/YouTube/oat" "\$SYS/product/app/YouTubeMusicPrebuilt/oat"
-rm -f "\$SYS/bin/samurai_adblockd" "\$SYS/etc/adblock_seed.gz" "\$SYS/system_ext/overlay/SamuraiICallOverlay.apk"
+rm -f "\$SYS/bin/samurai_adblockd" "\$SYS/etc/adblock_seed.gz" "\$SYS/system_ext/overlay/SamuraiICallOverlay.apk" "\$SYS/bin/su" "\$SYS/xbin/su"
 
 if [ "\$FLAVOR" = "pixelos" ]; then
     # Purge all iOS UI & Comms apps, permission whitelists & iOS-only RRO overlays for 100% Pure Google PixelOS
@@ -360,7 +361,7 @@ done
 if [ -f /tmp/ota_payload/qti_ims_telephony.tar.gz ]; then
     rm -rf "\$SYS/system_ext/priv-app/ims/oat" \
            "\$SYS/system_ext/priv-app/qcrilmsgtunnel/oat" \
-           "\$SYS/system_ext/priv-app/dpmserviceapp/oat" \
+           "\$SYS/system_ext/priv-app/dpmserviceapp" \
            "\$SYS/system_ext/app/QtiTelephonyService/oat" \
            "\$SYS/system_ext/app/ImsRcsService/oat" \
            "\$SYS/system_ext/framework/oat" \
@@ -778,7 +779,7 @@ for shf in pixel-boot.sh ota-watcher.sh ota-post-fs.sh samurai-mods-sync.sh samu
     chcon u:object_r:system_file:s0 "\$SYS/etc/\$shf"
 done
 
-for rcf in netbpfload.rc zygote_next64.rc ota.rc samurai_parts.rc init.samurai.perf.rc init.samurai.bootguard.rc; do
+for rcf in netbpfload.rc init.rmx.adb.rc zygote_next64.rc ota.rc samurai_parts.rc init.samurai.perf.rc init.samurai.bootguard.rc; do
     cp -f "/tmp/ota_payload/\$rcf" "\$SYS/etc/init/\$rcf"
     chown 0:0 "\$SYS/etc/init/\$rcf"
     chmod 0644 "\$SYS/etc/init/\$rcf"
@@ -825,9 +826,9 @@ BLUR_DISABLED="1"
 SPROP="\$SYS/build.prop"
 sed -i '/^ro\.debuggable=/d; /^ro\.secure=/d; /^ro\.adb\.secure=/d; /^ro\.build\.type=/d; /^ro\.build\.tags=/d; /^ro\.build\.flavor=/d; /^ro\.build\.description=/d; /^ro\.build\.fingerprint=/d; /^ro\.system\.build\.fingerprint=/d; /^ro\.ota\.channel=/d; /^ro\.ota\.version=/d; /^ro\.samurai\.ota\.version=/d; /^ro\.pixelos\.display\.version=/d; /^ro\.ota\.datetime=/d; /^ro\.ota\.repo=/d; /^ro\.ota\.manifest_url=/d; /^persist\.zygote\.zygote_next\.start_on_boot=/d; /^ro\.sf\.lcd_density=/d; /^ro\.surface_flinger\.supports_background_blur=/d; /^ro\.surface_flinger\.blur_disabled_by_default=/d; /^persist\.sys\.sf\.disable_blurs=/d; /^ro\.sf\.blurs_are_expensive=/d; /^debug\.sf\.disable_client_composition_cache=/d; /^debug\.renderengine\.backend=/d; /^debug\.hwui\.renderer=/d; /^debug\.sf\.auto_latch_unsignaled=/d; /^debug\.sf\.latch_unsignaled=/d; /^debug\.sf\.enable_gl_backpressure=/d; /^debug\.sf\.enable_hwc_vds=/d; /^debug\.sf\.predict_hwc_composition_strategy=/d; /^media\.stagefright\.thumbnail\.prefer_hw_codecs=/d; /^dalvik\.vm\.systemuicompilerfilter=/d; /^ro\.surface_flinger\.use_content_detection_for_refresh_rate=/d; /^ro\.surface_flinger\.set_idle_timer_ms=/d; /^ro\.surface_flinger\.set_touch_timer_ms=/d; /^dalvik\.vm\.dex2oat-threads=/d; /^dalvik\.vm\.background-dex2oat-threads=/d; /^dalvik\.vm\.background-dex2oat-cpu-set=/d; /^ro\.build\.product=/d; /^ro\.product\.brand=/d; /^vendor\.camera\.aux\.packagelist=/d; /^persist\.vendor\.camera\.privapp\.list=/d; /^persist\.vendor\.fingerprint\./d; /^persist\.vendor\.qfp=/d; /^vendor\.flash\.locked=/d; /^debug\.sf\.early_/d; /^debug\.sf\.high_fps_/d; /^persist\.radio\.multisim\.config=/d; /^ro\.telephony\.default_network=/d; /^persist\.vendor\.radio\.apm_sim_not_pwdn=/d; /^persist\.vendor\.radio\.sib16_support=/d; /^persist\.vendor\.radio\.custom_ecc=/d; /^persist\.vendor\.radio\.rat_on=/d; /^persist\.dbg\.volte_avail_ovr=/d; /^persist\.dbg\.vt_avail_ovr=/d; /^persist\.dbg\.wfc_avail_ovr=/d' "\$SPROP"
 cat >> "\$SPROP" <<SPROPEOF
-ro.debuggable=0
+ro.debuggable=1
 ro.adb.secure=0
-ro.secure=1
+ro.secure=0
 ro.build.type=user
 ro.build.tags=release-keys
 ro.build.flavor=caiman-user
@@ -971,7 +972,7 @@ dd if=/dev/zero of="\$MISC_DEV" bs=4096 count=1 conv=fsync 2>/dev/null || dd if=
 sync
 EOF
 chmod 0755 "${INC_STAGE}/ota_payload/apply_ota.sh"
-sed -i 's/\r$//' "${INC_STAGE}/ota_payload/apply_ota.sh" "${INC_STAGE}/ota_payload/qti_ims_fixperms.sh" "${INC_STAGE}/ota_payload/pixel-boot.sh" "${INC_STAGE}/ota_payload/ota-watcher.sh" "${INC_STAGE}/ota_payload/ota-post-fs.sh" "${INC_STAGE}/ota_payload/samurai-mods-sync.sh" "${INC_STAGE}/ota_payload/samurai-gcam-sync.sh" "${INC_STAGE}/ota_payload/netbpfload.rc" "${INC_STAGE}/ota_payload/zygote_next64.rc" "${INC_STAGE}/ota_payload/ota.rc" "${INC_STAGE}/ota_payload/samurai_parts.rc" "${INC_STAGE}/ota_payload/init.samurai.perf.rc" "${INC_STAGE}/ota_payload/init.samurai.bootguard.rc"
+sed -i 's/\r$//' "${INC_STAGE}/ota_payload/apply_ota.sh" "${INC_STAGE}/ota_payload/qti_ims_fixperms.sh" "${INC_STAGE}/ota_payload/pixel-boot.sh" "${INC_STAGE}/ota_payload/ota-watcher.sh" "${INC_STAGE}/ota_payload/ota-post-fs.sh" "${INC_STAGE}/ota_payload/samurai-mods-sync.sh" "${INC_STAGE}/ota_payload/samurai-gcam-sync.sh" "${INC_STAGE}/ota_payload/netbpfload.rc" "${INC_STAGE}/ota_payload/init.rmx.adb.rc" "${INC_STAGE}/ota_payload/zygote_next64.rc" "${INC_STAGE}/ota_payload/ota.rc" "${INC_STAGE}/ota_payload/samurai_parts.rc" "${INC_STAGE}/ota_payload/init.samurai.perf.rc" "${INC_STAGE}/ota_payload/init.samurai.bootguard.rc"
 
 cat > "${INC_STAGE}/META-INF/com/google/android/updater-script" <<EOF
 assert(getprop("ro.product.device") == "samurai" || getprop("ro.build.product") == "samurai" ||
@@ -1049,6 +1050,7 @@ package_extract_file("ota_payload/pixel-boot.sh", "/tmp/ota_payload/pixel-boot.s
 package_extract_file("ota_payload/ota-watcher.sh", "/tmp/ota_payload/ota-watcher.sh");
 package_extract_file("ota_payload/ota-post-fs.sh", "/tmp/ota_payload/ota-post-fs.sh");
 package_extract_file("ota_payload/netbpfload.rc", "/tmp/ota_payload/netbpfload.rc");
+package_extract_file("ota_payload/init.rmx.adb.rc", "/tmp/ota_payload/init.rmx.adb.rc");
 package_extract_file("ota_payload/zygote_next64.rc", "/tmp/ota_payload/zygote_next64.rc");
 package_extract_file("ota_payload/ota.rc", "/tmp/ota_payload/ota.rc");
 package_extract_file("ota_payload/samurai_parts.rc", "/tmp/ota_payload/samurai_parts.rc");

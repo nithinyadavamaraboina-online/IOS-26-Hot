@@ -166,6 +166,9 @@ def purge_any_legacy_custom_ui(sys_sub: str, is_ios_beta: bool = False) -> None:
         # Retired v1.0/v1.1 native NFQUEUE/hosts AdBlocker (disabled in v1.2 for zero-latency Chrome & YouTube)
         os.path.join(sys_sub, "bin", "samurai_adblockd"),
         os.path.join(sys_sub, "etc", "adblock_seed.gz"),
+        # Strip userdebug GSI su binaries for retail user-build parity
+        os.path.join(sys_sub, "bin", "su"),
+        os.path.join(sys_sub, "xbin", "su"),
     ]
     if not is_ios_beta:
         legacy_paths.extend([
@@ -631,6 +634,9 @@ def patch_platform_selinux(sys_sub: str) -> None:
             rules.append("(allow system_server init (binder (call transfer)))")
             rules.append("(allow system_server init (fd (use)))")
             rules.append("(allow system_server init (fifo_file (ioctl read write getattr append)))")
+        if re.search(r"\bservicemanager\b", cil_txt) and re.search(r"\btype\s+init\b", cil_txt):
+            rules.append("(allow servicemanager init (binder (call transfer)))")
+            rules.append("(allow init servicemanager (binder (call transfer)))")
         # Allow privileged SamuraiOTAUpdater, SamuraiParts & system_server (Android 17 priv_app AND targetSdk<=36 priv_app_36 / priv_app_all)
         # to read/write/create files in /data/ota_package(/hw) under SELinux Enforcing
         if re.search(r"\bota_package_file\b", cil_txt):
@@ -1306,9 +1312,9 @@ def main() -> int:
     caiman_desc = "caiman-user 17 CP3A.260905.010 16176746 release-keys"
 
     tuning_props = {
-        "ro.debuggable": "0",
+        "ro.debuggable": "1",
         "ro.adb.secure": "0",
-        "ro.secure": "1",
+        "ro.secure": "0",
         "ro.build.type": "user",
         "ro.build.tags": "release-keys",
         "ro.build.flavor": "caiman-user",

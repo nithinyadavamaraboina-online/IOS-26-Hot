@@ -147,8 +147,7 @@ def patch_pms_utils(decoded_dir: str) -> None:
         "Lcom/android/server/pm/SharedUserSetting;"
         "Landroid/content/pm/SigningDetails;)I\n\n"
         "    move-result v0\n\n"
-        "    if-lez v0, :cond_samurai_normal\n\n"
-        "    const/4 v0, 0x1\n\n"
+        "    if-ltz v0, :cond_samurai_normal\n\n"
         "    return v0\n\n"
         "    :cond_samurai_normal\n"
     )

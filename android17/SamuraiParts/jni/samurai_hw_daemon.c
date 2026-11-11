@@ -351,7 +351,7 @@ static int patch_prop_file_value(const char *prop_file, const char *prop_name, c
                 char *val_ptr = (char *)(void *)(map + off - 92);
                 uint32_t old_serial = __atomic_load_n(serial_ptr, __ATOMIC_RELAXED);
                 uint32_t old_len = old_serial >> 24;
-                if (old_len < 92 && (old_serial & 1U) == 0 && strnlen(val_ptr, 92) == (size_t)old_len) {
+                if (old_len >= 1 && old_len < 92 && (old_serial & 1U) == 0 && val_ptr[0] != '\0' && strnlen(val_ptr, 92) == (size_t)old_len) {
                     matched++;
                     if ((size_t)old_len != val_len || memcmp(val_ptr, new_val, val_len + 1) != 0) {
                         memset(val_ptr, 0, 92);
@@ -372,7 +372,7 @@ static int patch_prop_file_value(const char *prop_file, const char *prop_name, c
     return matched;
 }
 
-static void ensure_prop_value(const char *preferred_file, const char *prop_name, const char *new_val) {
+static void ensure_prop_value(const char *preferred_file, const char *prop_name, const char *new_val, bool allow_setprop) {
     if (preferred_file && patch_prop_file_value(preferred_file, prop_name, new_val) > 0) {
         return;
     }
@@ -396,50 +396,33 @@ static void ensure_prop_value(const char *preferred_file, const char *prop_name,
         }
         closedir(dir);
     }
-    set_system_prop_async(prop_name, new_val);
-}
-
-static bool is_adbd_process_active(void) {
-    DIR *dir = opendir("/proc");
-    if (!dir) return false;
-    struct dirent *de;
-    bool found = false;
-    while ((de = readdir(dir)) != NULL) {
-        if (!isdigit((unsigned char)de->d_name[0])) continue;
-        char comm_path[320];
-        char comm[32];
-        snprintf(comm_path, sizeof(comm_path), "/proc/%s/comm", de->d_name);
-        if (read_str_file(comm_path, comm, sizeof(comm)) && strcmp(comm, "adbd") == 0) {
-            found = true;
-            break;
-        }
+    if (allow_setprop) {
+        set_system_prop_async(prop_name, new_val);
     }
-    closedir(dir);
-    return found;
 }
 
 static void apply_early_boot_props(void) {
-    ensure_prop_value("/dev/__properties__/u:object_r:userdebug_or_eng_prop:s0", "ro.debuggable", "0");
-    ensure_prop_value("/dev/__properties__/u:object_r:userdebug_or_eng_prop:s0", "ro.secure", "1");
-    ensure_prop_value("/dev/__properties__/u:object_r:bootloader_prop:s0", "ro.boot.verifiedbootstate", "green");
-    ensure_prop_value("/dev/__properties__/u:object_r:bootloader_prop:s0", "ro.boot.veritymode", "enforcing");
-    ensure_prop_value("/dev/__properties__/u:object_r:bootloader_prop:s0", "ro.boot.flash.locked", "1");
-    ensure_prop_value("/dev/__properties__/u:object_r:bootloader_prop:s0", "ro.boot.vbmeta.device_state", "locked");
-    ensure_prop_value("/dev/__properties__/u:object_r:vendor_default_prop:s0", "vendor.flash.locked", "1");
-    ensure_prop_value("/dev/__properties__/u:object_r:build_prop:s0", "ro.build.type", "user");
-    ensure_prop_value("/dev/__properties__/u:object_r:build_prop:s0", "ro.build.tags", "release-keys");
+    ensure_prop_value("/dev/__properties__/u:object_r:userdebug_or_eng_prop:s0", "ro.debuggable", "0", false);
+    ensure_prop_value("/dev/__properties__/u:object_r:userdebug_or_eng_prop:s0", "ro.secure", "1", false);
+    ensure_prop_value("/dev/__properties__/u:object_r:bootloader_prop:s0", "ro.boot.verifiedbootstate", "green", false);
+    ensure_prop_value("/dev/__properties__/u:object_r:bootloader_prop:s0", "ro.boot.veritymode", "enforcing", false);
+    ensure_prop_value("/dev/__properties__/u:object_r:bootloader_prop:s0", "ro.boot.flash.locked", "1", false);
+    ensure_prop_value("/dev/__properties__/u:object_r:bootloader_prop:s0", "ro.boot.vbmeta.device_state", "locked", false);
+    ensure_prop_value("/dev/__properties__/u:object_r:vendor_default_prop:s0", "vendor.flash.locked", "1", false);
+    ensure_prop_value("/dev/__properties__/u:object_r:build_prop:s0", "ro.build.type", "user", false);
+    ensure_prop_value("/dev/__properties__/u:object_r:build_prop:s0", "ro.build.tags", "release-keys", false);
 }
 
 static void maybe_sync_adb_prop(bool force_now) {
-    if (!g_adb_prop_synced && (force_now || is_adbd_process_active())) {
-        ensure_prop_value("/dev/__properties__/u:object_r:adb_prop:s0", "ro.adb.secure", "1");
-        g_adb_prop_synced = 1;
-    }
+    (void)force_now;
+    g_adb_prop_synced = 1;
 }
 
 static void apply_post_boot_security_props(void) {
     apply_early_boot_props();
-    maybe_sync_adb_prop(true);
+    ensure_prop_value("/dev/__properties__/u:object_r:userdebug_or_eng_prop:s0", "ro.debuggable", "0", false);
+    ensure_prop_value("/dev/__properties__/u:object_r:userdebug_or_eng_prop:s0", "ro.secure", "1", false);
+    ensure_prop_value("/dev/__properties__/u:object_r:vendor_default_prop:s0", "vendor.flash.locked", "1", true);
 }
 
 static void toggle_rear_torch(void) {

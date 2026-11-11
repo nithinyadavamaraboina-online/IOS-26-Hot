@@ -136,7 +136,7 @@ write_mods_status() {
 }
 
 migrate_stale_client_caches_once() {
-    local stamp="${MODS_ROOT}/.client_env_migrated_v1"
+    local stamp="${MODS_ROOT}/.client_env_migrated_v2"
     [ -f "${stamp}" ] && return 0
     local prefs_dir="/data/user/0/com.phonepe.app/shared_prefs"
     if [ -d "${prefs_dir}" ]; then
