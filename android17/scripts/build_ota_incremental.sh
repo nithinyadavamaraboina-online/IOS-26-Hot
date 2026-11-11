@@ -1180,17 +1180,23 @@ import json, os, shutil, sys
 out_path, dt, fname, sha, size, url, ver, tag, channel = sys.argv[1:]
 if channel == "ios_beta":
     changelog = (
-        f"Pixel OS {ver} — Opt-In iOS Style UI Beta on Android 17 for Realme X2 Pro (RMX1931)\n"
-        "• QTI IMS / VoLTE / SMS-over-IP / Dual-SIM Stack & Google Dialer Compatibility: integrated full Qualcomm IMS/DPM/QCRIL stack (org.codeaurora.ims, vendor.qti.imsrcs, QtiTelephonyService, qcrilmsgtunnel, dpmserviceapp, CarrierConfigRes, Android 17 libgui_shim.so, and com.google.android.dialer.support.jar) so VoLTE/ViLTE calls, outgoing SMS, incoming OTPs on Jio 4G/5G, and DSDS Dual-SIM work out of the box with zero Google Dialer unsupported device banner\n"
-        "• Banking & UPI App Stability (PhonePe / zDefend): retail user-build Zygote initialization (ro.debuggable=0, zero JDWP threads), early-init Bionic property parity, zero /data/adb bind-mounts in /proc/self/mountinfo, sysconfig Google Photos unlimited backup routing, and per-UID Settings.Global/Secure ADB/Developer Options isolation\n"
-        "• Home Screen Double-Tap to Lock Fix (Binder.clearCallingIdentity in SamuraiPlatformSigBridge) + Optical UDFPS Calibration & Direct Single-Swipe Primary Bouncer Unlock"
+        f"What's New in Pixel OS {ver} (iOS Style UI Beta):\n"
+        "• Fixed Dual SIM: Both SIM cards now work together reliably for calls, SMS, and mobile data.\n"
+        "• Fixed Calls, SMS & OTPs: Sending text messages, receiving bank/login OTPs, and making HD voice calls (including on Jio 4G/5G) now work properly.\n"
+        "• Fixed Phone App Warning: Removed the \"This device isn't supported\" warning banner when opening the Phone app after a restart.\n"
+        "• Fixed PhonePe & Banking Apps: Stopped PhonePe and other UPI/banking apps from randomly closing or crashing when you open or switch back to them.\n"
+        "• Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away.\n"
+        "• Improved Fingerprint & Lock Screen Unlock: Faster single-swipe lock screen PIN entry and smoother in-display fingerprint unlock."
     )
 else:
     changelog = (
-        f"Pixel OS {ver} — Pure Retail Google PixelOS Stable Update for Realme X2 Pro (RMX1931)\n"
-        "• QTI IMS / VoLTE / SMS-over-IP / Dual-SIM Stack & Google Dialer Compatibility: integrated full Qualcomm IMS/DPM/QCRIL stack (org.codeaurora.ims, vendor.qti.imsrcs, QtiTelephonyService, qcrilmsgtunnel, dpmserviceapp, CarrierConfigRes, Android 17 libgui_shim.so, and com.google.android.dialer.support.jar) so VoLTE/ViLTE calls, outgoing SMS, incoming OTPs on Jio 4G/5G, and DSDS Dual-SIM work out of the box with zero Google Dialer unsupported device banner\n"
-        "• Banking & UPI App Stability (PhonePe / zDefend): retail user-build Zygote initialization (ro.debuggable=0, zero JDWP threads), early-init Bionic property parity, zero /data/adb bind-mounts in /proc/self/mountinfo, sysconfig Google Photos unlimited backup routing, and per-UID Settings.Global/Secure ADB/Developer Options isolation\n"
-        "• Home Screen Double-Tap to Lock Fix (Binder.clearCallingIdentity in SamuraiPlatformSigBridge) + Optical UDFPS Calibration & Compact Wireless Patch OTA"
+        f"What's New in Pixel OS {ver}:\n"
+        "• Fixed Dual SIM: Both SIM cards now work together reliably for calls, SMS, and mobile data.\n"
+        "• Fixed Calls, SMS & OTPs: Sending text messages, receiving bank/login OTPs, and making HD voice calls (including on Jio 4G/5G) now work properly.\n"
+        "• Fixed Phone App Warning: Removed the \"This device isn't supported\" warning banner when opening the Phone app after a restart.\n"
+        "• Fixed PhonePe & Banking Apps: Stopped PhonePe and other UPI/banking apps from randomly closing or crashing when you open or switch back to them.\n"
+        "• Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away.\n"
+        "• Improved Fingerprint Unlock: Smoother and more reliable in-display fingerprint recognition."
     )
 
 manifest = {
