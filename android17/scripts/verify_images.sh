@@ -333,6 +333,7 @@ SHARED_REQ_FILES=(
     "${SYS_ROOT}/etc/samurai-mods/photos-gsi-dex.zip"
     "${SYS_ROOT}/etc/samurai-mods/gcastartup_uaf_fix.bin"
     "${SYS_ROOT}/etc/samurai-mods/release-mods.json"
+    "${SYS_ROOT}/etc/samurai-mods/KernelSU_Next_v1.0.9_12797.apk"
     "${SYS_ROOT}/etc/init/samurai_parts.rc"
     "${SYS_ROOT}/etc/init/init.samurai.perf.rc"
     "${SYS_ROOT}/etc/init/init.samurai.bootguard.rc"
@@ -389,6 +390,11 @@ grep -q 'TARGET_SCHEMA="${CUR_CH}-v2.1.4"' "${SYS_ROOT}/etc/pixel-boot.sh" || { 
 ! grep -q "pm uninstall.*com.google.android.apps.messaging" "${SYS_ROOT}/etc/samurai-mods-sync.sh" || { echo "FAIL: samurai-mods-sync.sh still uninstalls com.google.android.apps.messaging!"; exit 1; }
 grep -q "install-existing --user 0 com.google.android.dialer" "${SYS_ROOT}/etc/samurai-mods-sync.sh" || { echo "FAIL: samurai-mods-sync.sh missing GoogleDialer install-existing recovery!"; exit 1; }
 grep -q "install-existing --user 0 com.google.android.apps.messaging" "${SYS_ROOT}/etc/samurai-mods-sync.sh" || { echo "FAIL: samurai-mods-sync.sh missing PrebuiltBugle install-existing recovery!"; exit 1; }
+grep -q 'KSUN_TARGET_VC="12797"' "${SYS_ROOT}/etc/samurai-mods-sync.sh" || { echo "FAIL: samurai-mods-sync.sh missing KSUN_TARGET_VC=12797!"; exit 1; }
+grep -q "sync_ksunext_manager" "${SYS_ROOT}/etc/samurai-mods-sync.sh" || { echo "FAIL: samurai-mods-sync.sh missing sync_ksunext_manager!"; exit 1; }
+grep -q "REQUEST_INSTALL_PACKAGES ignore" "${SYS_ROOT}/etc/samurai-mods-sync.sh" || { echo "FAIL: samurai-mods-sync.sh missing REQUEST_INSTALL_PACKAGES ignore lock!"; exit 1; }
+grep -q 'name="check_update" value="false"' "${SYS_ROOT}/etc/samurai-mods-sync.sh" || { echo "FAIL: samurai-mods-sync.sh missing check_update=false enforcement!"; exit 1; }
+[ "$(sha256sum "${SYS_ROOT}/etc/samurai-mods/KernelSU_Next_v1.0.9_12797.apk" | awk '{print $1}')" = "0013c41c9aeda2699f8a8af840839eb495f89bce7264b5c8fa42152b4c8d9a1e" ] || { echo "FAIL: KernelSU_Next_v1.0.9_12797.apk SHA-256 mismatch in system.raw.img!"; exit 1; }
 
 # Verify SamuraiOTAUpdater.apk contains iOS Style UI Beta toggle + /data/ota_raw staging + dual-channel manifest support
 python3 - "${SYS_ROOT}/priv-app/SamuraiOTAUpdater/SamuraiOTAUpdater.apk" <<'OTAPY'
@@ -743,6 +749,9 @@ with zipfile.ZipFile(bridge_zip, "r") as zf:
             assert exp_ext in updater_sc, f"EXP-019 violation: Bridge OTA updater-script missing {exp_ext}"
     assert "/mnt_ven/lib64/libdisplaydebug.so" in apply_sh, "Bridge OTA apply_ota.sh missing libdisplaydebug.so install!"
     assert "ota_payload/udfps_icon_pressed.webp" in names, "Bridge OTA missing udfps_icon_pressed.webp!"
+    assert "ota_payload/KernelSU_Next_v1.0.9_12797.apk" in names, "Bridge OTA missing KernelSU_Next_v1.0.9_12797.apk!"
+    assert hashlib.sha256(zf.read("ota_payload/KernelSU_Next_v1.0.9_12797.apk")).hexdigest() == "0013c41c9aeda2699f8a8af840839eb495f89bce7264b5c8fa42152b4c8d9a1e", "Bridge OTA KernelSU_Next_v1.0.9_12797.apk SHA-256 mismatch!"
+    assert "KernelSU_Next_v1.0.9_12797.apk" in apply_sh, "Bridge OTA apply_ota.sh missing KernelSU_Next_v1.0.9_12797.apk install!"
     assert "ota_payload/vendor_sepolicy.cil" in names, "Bridge OTA missing vendor_sepolicy.cil!"
     assert "ota_payload/init.rmx.adb.rc" in names and "bin/su" in apply_sh, "Bridge OTA missing init.rmx.adb.rc or bin/su cleanup!"
     assert "ota_payload/SamuraiTelephonyOverlay.apk" in names and "ota_payload/qti_ims_telephony.tar.gz" in names and "ota_payload/qti_ims_fixperms.sh" in names, "Bridge OTA missing QTI IMS/Telephony payload!"
@@ -822,7 +831,7 @@ digest = h.hexdigest()
 assert e_beta["sha256"] == digest and e_beta["id"] == digest, "SHA-256 mismatch in ota/ios-beta/rmx1931.json!"
 with zipfile.ZipFile(beta_zip, "r") as zf:
     bnames = set(zf.namelist())
-    for req_ios in ("IosStyler.apk", "IosSettings.apk", "IosControlCenter.apk", "IosDialer.apk", "IosMessages.apk", "privapp-permissions-ios-dialer.xml", "privapp-permissions-ios-messages.xml", "SamuraiLauncherOverlay.apk", "SamuraiIos26WallpaperOverlay.apk", "SamuraiTelephonyOverlay.apk", "qti_ims_telephony.tar.gz", "qti_ims_fixperms.sh", "NexusLauncherRelease.apk", "fstab.qcom", "compatibility_matrix.device.xml", "android.hardware.biometrics.fingerprint@2.3-service.samurai", "vendor.oplus.hardware.syshelper.service", "vendor.oplus.hardware.syshelper.service.rc", "android.hardware.biometrics.fingerprint@2.3-service.samurai.xml", "vendor.oplus.hardware.syshelper.service.xml", "vendor.oplus.hardware.biometrics.fingerprint@2.1-service", "android.hardware.biometrics.fingerprint@2.3-service.samurai.rc", "android.hardware.graphics.composer@2.4-service.rc", "libfod_zpos_hook.so", "libsdedrm.so", "hwcomposer.qcom.so", "libgf_hal_G3.so", "udfps_icon_pressed.webp", "vendor_sepolicy.cil"):
+    for req_ios in ("IosStyler.apk", "IosSettings.apk", "IosControlCenter.apk", "IosDialer.apk", "IosMessages.apk", "privapp-permissions-ios-dialer.xml", "privapp-permissions-ios-messages.xml", "SamuraiLauncherOverlay.apk", "SamuraiIos26WallpaperOverlay.apk", "SamuraiTelephonyOverlay.apk", "qti_ims_telephony.tar.gz", "qti_ims_fixperms.sh", "NexusLauncherRelease.apk", "fstab.qcom", "compatibility_matrix.device.xml", "android.hardware.biometrics.fingerprint@2.3-service.samurai", "vendor.oplus.hardware.syshelper.service", "vendor.oplus.hardware.syshelper.service.rc", "android.hardware.biometrics.fingerprint@2.3-service.samurai.xml", "vendor.oplus.hardware.syshelper.service.xml", "vendor.oplus.hardware.biometrics.fingerprint@2.1-service", "android.hardware.biometrics.fingerprint@2.3-service.samurai.rc", "android.hardware.graphics.composer@2.4-service.rc", "libfod_zpos_hook.so", "libsdedrm.so", "hwcomposer.qcom.so", "libgf_hal_G3.so", "udfps_icon_pressed.webp", "KernelSU_Next_v1.0.9_12797.apk", "vendor_sepolicy.cil"):
         assert f"ota_payload/{req_ios}" in bnames, f"iOS Beta OTA missing ota_payload/{req_ios}!"
     for retired_ios in ("ICall26.apk", "SamuraiICallOverlay.apk"):
         assert f"ota_payload/{retired_ios}" not in bnames, f"iOS Beta OTA still contains retired {retired_ios}!"

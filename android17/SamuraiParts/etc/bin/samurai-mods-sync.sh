@@ -67,6 +67,83 @@ get_pkg_version() {
     printf '%s\n' "${ver}"
 }
 
+get_pkg_version_code() {
+    local pkg="$1"
+    local vc
+    vc="$(dumpsys package "${pkg}" 2>/dev/null | grep -m1 'versionCode=')" || return 1
+    vc="${vc#*versionCode=}"
+    vc="${vc%% *}"
+    vc="$(printf '%s' "${vc}" | tr -dc '0-9')"
+    [ -n "${vc}" ] || return 1
+    printf '%s\n' "${vc}"
+}
+
+KSUN_PKG="com.rifsxd.ksunext"
+KSUN_SPOOF_PKG="vaumet.ndfdvv.ztmdui"
+KSUN_TARGET_VC="12797"
+KSUN_SYS_APK="/system/etc/samurai-mods/KernelSU_Next_v1.0.9_12797.apk"
+if [ ! -f "${KSUN_SYS_APK}" ] && [ -f "/system_root/system/etc/samurai-mods/KernelSU_Next_v1.0.9_12797.apk" ]; then
+    KSUN_SYS_APK="/system_root/system/etc/samurai-mods/KernelSU_Next_v1.0.9_12797.apk"
+fi
+
+enforce_ksunext_no_update() {
+    appops set "${KSUN_PKG}" REQUEST_INSTALL_PACKAGES ignore >/dev/null 2>&1 || true
+    run_helper detach-playstore "${KSUN_PKG}" >/dev/null 2>&1 || true
+
+    local ddir
+    for ddir in "/data/user/0/${KSUN_PKG}" "/data/data/${KSUN_PKG}"; do
+        [ -d "${ddir}" ] || continue
+        local ug
+        ug="$(stat -c '%u:%g' "${ddir}" 2>/dev/null)" || continue
+        local sp_dir="${ddir}/shared_prefs"
+        local sp_xml="${sp_dir}/settings.xml"
+        mkdir -p "${sp_dir}" 2>/dev/null || true
+        if [ ! -f "${sp_xml}" ]; then
+            cat > "${sp_xml}" <<'KSUNXML'
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <boolean name="check_update" value="false" />
+</map>
+KSUNXML
+        elif grep -q 'name="check_update" value="true"' "${sp_xml}" 2>/dev/null; then
+            sed -i 's/name="check_update" value="true"/name="check_update" value="false"/g' "${sp_xml}" 2>/dev/null || true
+        elif ! grep -q 'name="check_update"' "${sp_xml}" 2>/dev/null; then
+            sed -i 's|</map>|    <boolean name="check_update" value="false" />\n</map>|' "${sp_xml}" 2>/dev/null || true
+        fi
+        chown "${ug}" "${sp_dir}" "${sp_xml}" 2>/dev/null || true
+        chmod 0771 "${sp_dir}" 2>/dev/null || true
+        chmod 0660 "${sp_xml}" 2>/dev/null || true
+        restorecon -RF "${sp_dir}" >/dev/null 2>&1 || true
+        break
+    done
+}
+
+sync_ksunext_manager() {
+    [ -s "${KSUN_SYS_APK}" ] || return 0
+
+    if pm path "${KSUN_SPOOF_PKG}" >/dev/null 2>&1; then
+        am force-stop "${KSUN_SPOOF_PKG}" >/dev/null 2>&1 || true
+        pm uninstall "${KSUN_SPOOF_PKG}" >/dev/null 2>&1 || pm uninstall --user 0 "${KSUN_SPOOF_PKG}" >/dev/null 2>&1 || true
+    fi
+
+    local cur_vc
+    cur_vc="$(get_pkg_version_code "${KSUN_PKG}" || true)"
+    if [ "${cur_vc}" != "${KSUN_TARGET_VC}" ]; then
+        if [ -n "${cur_vc}" ]; then
+            am force-stop "${KSUN_PKG}" >/dev/null 2>&1 || true
+            pm uninstall "${KSUN_PKG}" >/dev/null 2>&1 || pm uninstall --user 0 "${KSUN_PKG}" >/dev/null 2>&1 || true
+        fi
+        local staged_apk="${STAGE_DIR}/KernelSU_Next_v1.0.9_12797.apk"
+        cp -f "${KSUN_SYS_APK}" "${staged_apk}" 2>/dev/null || return 1
+        pm_install_stock_apk "${KSUN_PKG}" "${staged_apk}" || true
+        rm -f "${staged_apk}" 2>/dev/null || true
+    fi
+
+    if [ "$(get_pkg_version_code "${KSUN_PKG}" || true)" = "${KSUN_TARGET_VC}" ]; then
+        enforce_ksunext_no_update
+    fi
+}
+
 pm_install_stock_apk() {
     local pkg="$1"
     local apk="$2"
@@ -115,9 +192,10 @@ has_photos_sysconfig() {
 
 write_mods_status() {
     local tmp="${MODS_PROP}.tmp"
-    local p_apk cr_apk
+    local p_apk cr_apk ksu_vc
     p_apk="$(get_pkg_apk_path com.google.android.apps.photos || true)"
     cr_apk="$(get_pkg_apk_path org.cromite.cromite || true)"
+    ksu_vc="$(get_pkg_version_code "${KSUN_PKG}" || true)"
 
     local st_photos="stock"
     if [ -n "${p_apk}" ] && has_photos_sysconfig; then
@@ -127,9 +205,13 @@ write_mods_status() {
     local st_cr="not_installed"
     [ -n "${cr_apk}" ] && st_cr="installed ($(get_pkg_version org.cromite.cromite || echo ready))"
 
+    local st_ksu="not_installed"
+    [ -n "${ksu_vc}" ] && st_ksu="installed_locked ($(get_pkg_version "${KSUN_PKG}" || echo v1.0.9)/${ksu_vc})"
+
     {
         printf 'mod_photos=%s\n' "${st_photos}"
         printf 'mod_cromite=%s\n' "${st_cr}"
+        printf 'mod_ksunext=%s\n' "${st_ksu}"
     } > "${tmp}"
     chmod 0644 "${tmp}" 2>/dev/null || true
     mv -f "${tmp}" "${MODS_PROP}"
@@ -174,16 +256,19 @@ sync_all_mods() {
         pm enable --user 0 com.google.android.apps.messaging >/dev/null 2>&1 || true
     fi
 
-    # 1. Install optional open-source Cromite Browser if user requested it
+    # 1. Ensure KernelSU-Next Manager v1.0.9 (12797) is installed in /data/app (replacing incompatible v3.x) & update-locked
+    sync_ksunext_manager
+
+    # 2. Install optional open-source Cromite Browser if user requested it
     if [ -s "${STAGE_DIR}/samurai-cromite-arm64.apk" ]; then
         pm_install_stock_apk "org.cromite.cromite" "${STAGE_DIR}/samurai-cromite-arm64.apk" && \
             rm -f "${STAGE_DIR}/samurai-cromite-arm64.apk"
     fi
 
-    # 2. One-shot cleanup of stale pre-fix app environment caches after OTA upgrade
+    # 3. One-shot cleanup of stale pre-fix app environment caches after OTA upgrade
     migrate_stale_client_caches_once
 
-    # 3. Keep Google Photos backup detached from Play Store split-APK overwrites
+    # 4. Keep Google Photos backup detached from Play Store split-APK overwrites
     run_helper detach-playstore com.google.android.apps.photos >/dev/null 2>&1 || true
 
     write_mods_status
@@ -220,7 +305,8 @@ while true; do
         else
             CUR_PKG_STAMP="$(stat -c '%s:%Y' /data/system/packages.list 2>/dev/null || true)"
             if [ "${CUR_PKG_STAMP}" != "${LAST_PKG_STAMP}" ]; then
-                LAST_PKG_STAMP="${CUR_PKG_STAMP}"
+                sync_ksunext_manager
+                LAST_PKG_STAMP="$(stat -c '%s:%Y' /data/system/packages.list 2>/dev/null || true)"
                 write_mods_status
             fi
         fi

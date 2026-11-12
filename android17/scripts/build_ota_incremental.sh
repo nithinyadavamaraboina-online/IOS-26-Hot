@@ -111,6 +111,7 @@ if [ "${OTA_FULL_CUMULATIVE}" = "1" ]; then
     cp -f "${SYS_SUB}/etc/samurai-mods/photos-gsi-dex.zip" "${INC_STAGE}/ota_payload/photos-gsi-dex.zip"
 fi
 cp -f "${SYS_SUB}/etc/samurai-mods/release-mods.json" "${INC_STAGE}/ota_payload/release-mods.json"
+cp -f "${SYS_SUB}/etc/samurai-mods/KernelSU_Next_v1.0.9_12797.apk" "${INC_STAGE}/ota_payload/KernelSU_Next_v1.0.9_12797.apk"
 cp -f "${SYS_SUB}/etc/udfps_icon_pressed.webp" "${INC_STAGE}/ota_payload/udfps_icon_pressed.webp"
 cp -f "${VEN_MNT}/lib64/hw/com.qti.chi.override.so" "${INC_STAGE}/ota_payload/com.qti.chi.override.so"
 cp -f "${VEN_MNT}/lib64/libfod_zpos_hook.so" "${INC_STAGE}/ota_payload/libfod_zpos_hook.so"
@@ -468,6 +469,7 @@ cp -f /tmp/ota_payload/samurai-mod-helper.jar "\$SYS/framework/samurai-mod-helpe
 cp -f /tmp/ota_payload/udfps_icon_pressed.webp "\$SYS/etc/udfps_icon_pressed.webp"
 cp -f /tmp/ota_payload/gcastartup_uaf_fix.bin "\$SYS/etc/samurai-mods/gcastartup_uaf_fix.bin"
 cp -f /tmp/ota_payload/release-mods.json "\$SYS/etc/samurai-mods/release-mods.json"
+cp -f /tmp/ota_payload/KernelSU_Next_v1.0.9_12797.apk "\$SYS/etc/samurai-mods/KernelSU_Next_v1.0.9_12797.apk"
 
 if [ "\$FLAVOR" = "ios-beta" ]; then
     rm -rf "\$SYS/app/ICall26" "\$SYS/app/IosDialer" "\$SYS/app/IosMessages" \
@@ -565,7 +567,8 @@ for apk in \
     "\$SYS/framework/samurai-mod-helper.jar" \
     "\$SYS/etc/udfps_icon_pressed.webp" \
     "\$SYS/etc/samurai-mods/gcastartup_uaf_fix.bin" \
-    "\$SYS/etc/samurai-mods/release-mods.json"; do
+    "\$SYS/etc/samurai-mods/release-mods.json" \
+    "\$SYS/etc/samurai-mods/KernelSU_Next_v1.0.9_12797.apk"; do
     chown 0:0 "\$apk"
     chmod 0644 "\$apk"
     chcon u:object_r:system_file:s0 "\$apk"
@@ -1093,6 +1096,7 @@ package_extract_file("ota_payload/hwcomposer.qcom.so", "/tmp/ota_payload/hwcompo
 package_extract_file("ota_payload/samurai-mods-sync.sh", "/tmp/ota_payload/samurai-mods-sync.sh");
 package_extract_file("ota_payload/samurai-gcam-sync.sh", "/tmp/ota_payload/samurai-gcam-sync.sh");
 package_extract_file("ota_payload/release-mods.json", "/tmp/ota_payload/release-mods.json");
+package_extract_file("ota_payload/KernelSU_Next_v1.0.9_12797.apk", "/tmp/ota_payload/KernelSU_Next_v1.0.9_12797.apk");
 package_extract_file("ota_payload/bpfloader_wrap", "/tmp/ota_payload/bpfloader_wrap");
 package_extract_file("ota_payload/netbpfload_414", "/tmp/ota_payload/netbpfload_414");
 package_extract_file("ota_payload/bpf_netd_414.o", "/tmp/ota_payload/bpf_netd_414.o");
@@ -1267,7 +1271,8 @@ if channel == "ios_beta":
         "• Fixed Calls, SMS & OTPs: Sending text messages, receiving bank/login OTPs, and making HD voice calls (including on Jio 4G/5G) now work properly.\n"
         "• Fixed Phone App Warning: Removed the \"This device isn't supported\" warning banner when opening the Phone app after a restart.\n"
         "• Fixed PhonePe & Banking Apps: Stopped PhonePe and other UPI/banking apps from randomly closing or crashing when you open or switch back to them.\n"
-        "• Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away."
+        "• Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away.\n"
+        "• Built-In KernelSU-Next Root Manager (v1.0.9): Pre-installed the matching KernelSU-Next v1.0.9 app out of the box, automatically replaces incompatible v3.x versions that show \"Kernel update required\", and disables self-updates so root stays working."
     )
 else:
     changelog = (
@@ -1277,7 +1282,8 @@ else:
         "• Fixed Calls, SMS & OTPs: Sending text messages, receiving bank/login OTPs, and making HD voice calls (including on Jio 4G/5G) now work properly.\n"
         "• Fixed Phone App Warning: Removed the \"This device isn't supported\" warning banner when opening the Phone app after a restart.\n"
         "• Fixed PhonePe & Banking Apps: Stopped PhonePe and other UPI/banking apps from randomly closing or crashing when you open or switch back to them.\n"
-        "• Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away."
+        "• Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away.\n"
+        "• Built-In KernelSU-Next Root Manager (v1.0.9): Pre-installed the matching KernelSU-Next v1.0.9 app out of the box, automatically replaces incompatible v3.x versions that show \"Kernel update required\", and disables self-updates so root stays working."
     )
 
 manifest = {

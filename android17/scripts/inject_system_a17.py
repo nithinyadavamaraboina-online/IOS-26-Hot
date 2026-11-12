@@ -1109,6 +1109,30 @@ def main() -> int:
         gid=0,
         ctx="u:object_r:system_file:s0",
     )
+    ksun_apk_src = None
+    for cand in [
+        os.path.join(work_root, "downloads", "ksunext", "KernelSU_Next_v1.0.9_12797-release.apk"),
+        "/var/tmp/rmx1931-a17/downloads/ksunext/KernelSU_Next_v1.0.9_12797-release.apk",
+    ]:
+        if os.path.isfile(cand):
+            ksun_apk_src = cand
+            break
+    if not ksun_apk_src:
+        raise RuntimeError("Missing KernelSU_Next_v1.0.9_12797-release.apk for built-in KernelSU-Next Manager!")
+    import hashlib
+    with open(ksun_apk_src, "rb") as _kf:
+        ksun_sha = hashlib.sha256(_kf.read()).hexdigest()
+    assert ksun_sha == "0013c41c9aeda2699f8a8af840839eb495f89bce7264b5c8fa42152b4c8d9a1e", (
+        f"Unexpected KernelSU_Next_v1.0.9_12797-release.apk SHA-256: {ksun_sha}"
+    )
+    install_file(
+        ksun_apk_src,
+        os.path.join(sys_sub, "etc", "samurai-mods", "KernelSU_Next_v1.0.9_12797.apk"),
+        mode=0o644,
+        uid=0,
+        gid=0,
+        ctx="u:object_r:system_file:s0",
+    )
     for stale_oat in [
         os.path.join(sys_sub, "product", "app", "Photos", "oat"),
         os.path.join(sys_sub, "product", "app", "YouTube", "oat"),
