@@ -36,14 +36,14 @@ done
 
 if [ "${ROM_FLAVOR}" = "ios-beta" ]; then
     OTA_CHANNEL="ios_beta"
-    OTA_VERSION="${OTA_VERSION:-v2.1.10-b1}"
+    OTA_VERSION="${OTA_VERSION:-v2.1.11-b1}"
     OTA_RELEASE_TAG="${OTA_RELEASE_TAG:-ios-beta-${OTA_VERSION}}"
     ROM_FILENAME="${ROM_FILENAME:-RMX1931-Android17-iOSBeta-OTA-${OTA_VERSION}.zip}"
     MANIFEST_OUT="${MANIFEST_OUT:-${REPO_ROOT}/ota/ios-beta/rmx1931.json}"
     OTA_MANIFEST_PROP_URL="https://raw.githubusercontent.com/${OTA_GITHUB_REPO}/main/ota/ios-beta/rmx1931.json"
 elif [ "${ROM_FLAVOR}" = "pixelos" ]; then
     OTA_CHANNEL="stable"
-    OTA_VERSION="${OTA_VERSION:-v2.1.10}"
+    OTA_VERSION="${OTA_VERSION:-v2.1.11}"
     OTA_RELEASE_TAG="${OTA_RELEASE_TAG:-pixelos-stable-${OTA_VERSION}}"
     ROM_FILENAME="${ROM_FILENAME:-RMX1931-Android17-PixelOS-OTA.zip}"
     MANIFEST_OUT="${MANIFEST_OUT:-${REPO_ROOT}/ota/rmx1931.json}"

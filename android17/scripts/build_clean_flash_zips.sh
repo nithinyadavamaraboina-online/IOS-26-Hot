@@ -37,13 +37,13 @@ done
 
 if [ "${ROM_FLAVOR}" = "ios-beta" ]; then
     SYSTEM_ONLY=1
-    OTA_VERSION="${OTA_VERSION:-v2.1.10-b1}"
+    OTA_VERSION="${OTA_VERSION:-v2.1.11-b1}"
     OTA_RELEASE_TAG="${OTA_RELEASE_TAG:-ios-beta-${OTA_VERSION}}"
     SYS_FILENAME="${SYS_FILENAME:-RMX1931-Android17-iOSBeta-System-${OTA_VERSION}.zip}"
     OTA_CHANNEL="ios_beta"
     MANIFEST_OUT="${REPO_ROOT}/ota/ios-beta/rmx1931.json"
 elif [ "${ROM_FLAVOR}" = "pixelos" ]; then
-    OTA_VERSION="${OTA_VERSION:-v2.1.10}"
+    OTA_VERSION="${OTA_VERSION:-v2.1.11}"
     OTA_RELEASE_TAG="${OTA_RELEASE_TAG:-pixelos-stable-${OTA_VERSION}}"
     SYS_FILENAME="${SYS_FILENAME:-RMX1931-Android17-PixelOS-System.zip}"
     OTA_CHANNEL="stable"

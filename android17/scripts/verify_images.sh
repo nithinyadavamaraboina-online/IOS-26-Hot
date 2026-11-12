@@ -20,10 +20,10 @@ ZIPALIGN="${WORK_ROOT}/tools/android-sdk/build-tools/35.0.0/zipalign"
 
 if [ "${ROM_FLAVOR}" = "ios-beta" ]; then
     EXP_CH="ios_beta"
-    EXP_OTA_VER="${OTA_VERSION:-v2.1.10-b1}"
+    EXP_OTA_VER="${OTA_VERSION:-v2.1.11-b1}"
 elif [ "${ROM_FLAVOR}" = "pixelos" ]; then
     EXP_CH="stable"
-    EXP_OTA_VER="${OTA_VERSION:-v2.1.10}"
+    EXP_OTA_VER="${OTA_VERSION:-v2.1.11}"
 else
     echo "FAIL: Unsupported ROM_FLAVOR=${ROM_FLAVOR}"
     exit 1
@@ -818,7 +818,7 @@ for st_path in (stable_json, root_json):
     st_e = json.load(open(st_path, encoding="utf-8"))["response"][0]
     assert (
         st_e["channel"] == "stable"
-        and st_e["version"] == "v2.1.10"
+        and st_e["version"] == "v2.1.11"
         and st_e["sha256"] == EXPECTED_STABLE_SHA
         and st_e["id"] == EXPECTED_STABLE_SHA
     ), f"Stable manifest {st_path} mismatch during ios-beta build: {st_e}"
