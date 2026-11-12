@@ -503,6 +503,64 @@ def patch_ipackage_manager_base(decoded_dir: str) -> None:
         f.write(src[:m_start] + body + src[m_end:])
 
 
+def patch_apps_filter_base(decoded_dir: str) -> None:
+    """
+    Hooks AppsFilterBase.shouldFilterApplication and shouldFilterApplicationInternal
+    so third-party banking/UPI apps (PhonePe, GPay, Paytm, BHIM) and Play Protect / GMS
+    cannot see com.rifsxd.ksunext (KernelSU-Next) or Magisk/KernelSU packages via
+    PackageManager, while Launcher, Settings, SystemUI, PermissionController, and root/shell
+    see them normally.
+    """
+    path = find_smali(
+        decoded_dir,
+        "com/android/server/pm/AppsFilterBase.smali",
+    )
+    with open(path, "r", encoding="utf-8") as f:
+        src = f.read()
+
+    for m_hdr, locals_line, cond_lbl in [
+        (
+            ".method public shouldFilterApplication("
+            "Lcom/android/server/pm/snapshot/PackageDataSnapshot;"
+            "ILjava/lang/Object;"
+            "Lcom/android/server/pm/pkg/PackageStateInternal;I)Z",
+            "    .locals 10\n",
+            ":cond_samurai_root_filter_ext",
+        ),
+        (
+            ".method public shouldFilterApplicationInternal("
+            "Lcom/android/server/pm/Computer;"
+            "ILjava/lang/Object;"
+            "Lcom/android/server/pm/pkg/PackageStateInternal;I)Z",
+            "    .locals 9\n",
+            ":cond_samurai_root_filter_int",
+        ),
+    ]:
+        m_start = src.find(m_hdr)
+        m_end = src.find(".end method", m_start) if m_start >= 0 else -1
+        if m_start < 0 or m_end < 0:
+            raise RuntimeError(f"Method not found in AppsFilterBase.smali: {m_hdr}")
+        body = src[m_start:m_end]
+        if body.count(locals_line) != 1:
+            raise RuntimeError(f"Expected {locals_line.strip()} in {m_hdr}")
+        hook = (
+            locals_line
+            + "\n    invoke-static {p2, p3, p4}, Lcom/realme/samurai/pm/SamuraiPlatformSigBridge;"
+            "->shouldFilterRootManagerPackage("
+            "ILjava/lang/Object;Lcom/android/server/pm/pkg/PackageState;)Z\n\n"
+            "    move-result v0\n\n"
+            f"    if-eqz v0, {cond_lbl}\n\n"
+            "    const/4 v0, 0x1\n\n"
+            "    return v0\n\n"
+            f"    {cond_lbl}\n"
+        )
+        body = body.replace(locals_line, hook, 1)
+        src = src[:m_start] + body + src[m_end:]
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(src)
+
+
 def main() -> int:
     if not os.path.isfile(STOCK_JAR):
         raise FileNotFoundError(f"Missing pristine services_stock.jar at {STOCK_JAR}")
@@ -531,6 +589,7 @@ def main() -> int:
         patch_reconcile_package_utils(decoded_dir)
         patch_content_provider_record(decoded_dir)
         patch_ipackage_manager_base(decoded_dir)
+        patch_apps_filter_base(decoded_dir)
         patch_wm_session(decoded_dir)
         patch_fingerprint_aidl_sensor(decoded_dir)
         patch_udfps_optical_overlay(decoded_dir)

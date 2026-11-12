@@ -20,10 +20,10 @@ ZIPALIGN="${WORK_ROOT}/tools/android-sdk/build-tools/35.0.0/zipalign"
 
 if [ "${ROM_FLAVOR}" = "ios-beta" ]; then
     EXP_CH="ios_beta"
-    EXP_OTA_VER="${OTA_VERSION:-v2.1.11-b1}"
+    EXP_OTA_VER="${OTA_VERSION:-v2.1.12-b1}"
 elif [ "${ROM_FLAVOR}" = "pixelos" ]; then
     EXP_CH="stable"
-    EXP_OTA_VER="${OTA_VERSION:-v2.1.11}"
+    EXP_OTA_VER="${OTA_VERSION:-v2.1.12}"
 else
     echo "FAIL: Unsupported ROM_FLAVOR=${ROM_FLAVOR}"
     exit 1
@@ -433,6 +433,7 @@ with zipfile.ZipFile(sys.argv[2], "r") as zf:
     assert b"onWallpaperCommand" in d4 and b"android.wallpaper.tap" in d4, "services.jar missing onWallpaperCommand Home Screen double-tap lock bridge!"
     assert b"STOCK_NEXUS_LAUNCHER_SHA256" in d4 and bytes.fromhex("a86bdb059f28f265162d64ce6c8d9772901d227e741581d1f04a5ed132a574d0") in d4, "services.jar missing STOCK_NEXUS_LAUNCHER_SHA256 two-way cert bridge!"
     assert b"SamuraiSettingsBinderWrapper" in d4 and b"maybeWrapSettingsHolder" in d4, "services.jar missing SamuraiSettingsBinderWrapper per-UID Settings isolation!"
+    assert b"shouldFilterRootManagerPackage" in d4, "services.jar missing shouldFilterRootManagerPackage PackageManager root hiding!"
     assert b"hasSystemFeature" in d4 and b"NEXUS_PRELOAD" in d4 and b"PIXEL_20" in d4, "services.jar missing per-UID Pixel 2016 feature routing for Google Photos!"
 print("  [PASS] Pristine stock SystemUI.apk + two-way SamuraiPlatformSigBridge + Home Wallpaper double-tap sleep in services.jar verified!")
 SVCPY
@@ -818,7 +819,7 @@ for st_path in (stable_json, root_json):
     st_e = json.load(open(st_path, encoding="utf-8"))["response"][0]
     assert (
         st_e["channel"] == "stable"
-        and st_e["version"] == "v2.1.11"
+        and st_e["version"] == "v2.1.12"
         and st_e["sha256"] == EXPECTED_STABLE_SHA
         and st_e["id"] == EXPECTED_STABLE_SHA
     ), f"Stable manifest {st_path} mismatch during ios-beta build: {st_e}"

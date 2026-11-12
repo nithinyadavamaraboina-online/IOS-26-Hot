@@ -10,6 +10,7 @@ public class PackageSetting {
     public File getPath() { return null; }
     public String getPathString() { return null; }
     public SigningDetails getSigningDetails() { return null; }
+    public int getFlags() { return 0; }
     public boolean isPrivileged() { return false; }
     public boolean isSystem() { return false; }
     public boolean isSystemExt() { return false; }

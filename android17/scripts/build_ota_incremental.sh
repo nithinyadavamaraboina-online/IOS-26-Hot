@@ -36,14 +36,14 @@ done
 
 if [ "${ROM_FLAVOR}" = "ios-beta" ]; then
     OTA_CHANNEL="ios_beta"
-    OTA_VERSION="${OTA_VERSION:-v2.1.11-b1}"
+    OTA_VERSION="${OTA_VERSION:-v2.1.12-b1}"
     OTA_RELEASE_TAG="${OTA_RELEASE_TAG:-ios-beta-${OTA_VERSION}}"
     ROM_FILENAME="${ROM_FILENAME:-RMX1931-Android17-iOSBeta-OTA-${OTA_VERSION}.zip}"
     MANIFEST_OUT="${MANIFEST_OUT:-${REPO_ROOT}/ota/ios-beta/rmx1931.json}"
     OTA_MANIFEST_PROP_URL="https://raw.githubusercontent.com/${OTA_GITHUB_REPO}/main/ota/ios-beta/rmx1931.json"
 elif [ "${ROM_FLAVOR}" = "pixelos" ]; then
     OTA_CHANNEL="stable"
-    OTA_VERSION="${OTA_VERSION:-v2.1.11}"
+    OTA_VERSION="${OTA_VERSION:-v2.1.12}"
     OTA_RELEASE_TAG="${OTA_RELEASE_TAG:-pixelos-stable-${OTA_VERSION}}"
     ROM_FILENAME="${ROM_FILENAME:-RMX1931-Android17-PixelOS-OTA.zip}"
     MANIFEST_OUT="${MANIFEST_OUT:-${REPO_ROOT}/ota/rmx1931.json}"
@@ -1266,24 +1266,24 @@ out_path, dt, fname, sha, size, url, ver, tag, channel = sys.argv[1:]
 if channel == "ios_beta":
     changelog = (
         f"What's New in Pixel OS {ver} (iOS Style UI Beta):\n"
+        "• Fixed PhonePe Integrity & Root Detection: Automatically hides KernelSU-Next and root manager apps from PhonePe, banking/UPI apps, and Play Protect, and clears stale PhonePe security flags so PhonePe works alongside Google Pay without \"integrity compromised\" errors.\n"
+        "• Built-In KernelSU-Next Root Manager (v1.0.9): Pre-installed the matching KernelSU-Next v1.0.9 app out of the box, automatically replaces incompatible v3.x versions that show \"Kernel update required\", and disables self-updates so root stays working.\n"
         "• Fixed In-Display Fingerprint: Pressing the fingerprint sensor during setup and on the lock screen now lights up properly and registers your finger right away.\n"
         "• Fixed Dual SIM: Both SIM cards now work together reliably for calls, SMS, and mobile data.\n"
         "• Fixed Calls, SMS & OTPs: Sending text messages, receiving bank/login OTPs, and making HD voice calls (including on Jio 4G/5G) now work properly.\n"
         "• Fixed Phone App Warning: Removed the \"This device isn't supported\" warning banner when opening the Phone app after a restart.\n"
-        "• Fixed PhonePe & Banking Apps: Stopped PhonePe and other UPI/banking apps from randomly closing or crashing when you open or switch back to them.\n"
-        "• Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away.\n"
-        "• Built-In KernelSU-Next Root Manager (v1.0.9): Pre-installed the matching KernelSU-Next v1.0.9 app out of the box, automatically replaces incompatible v3.x versions that show \"Kernel update required\", and disables self-updates so root stays working."
+        "• Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away."
     )
 else:
     changelog = (
         f"What's New in Pixel OS {ver}:\n"
+        "• Fixed PhonePe Integrity & Root Detection: Automatically hides KernelSU-Next and root manager apps from PhonePe, banking/UPI apps, and Play Protect, and clears stale PhonePe security flags so PhonePe works alongside Google Pay without \"integrity compromised\" errors.\n"
+        "• Built-In KernelSU-Next Root Manager (v1.0.9): Pre-installed the matching KernelSU-Next v1.0.9 app out of the box, automatically replaces incompatible v3.x versions that show \"Kernel update required\", and disables self-updates so root stays working.\n"
         "• Fixed In-Display Fingerprint: Pressing the fingerprint sensor during setup and on the lock screen now lights up properly and registers your finger right away.\n"
         "• Fixed Dual SIM: Both SIM cards now work together reliably for calls, SMS, and mobile data.\n"
         "• Fixed Calls, SMS & OTPs: Sending text messages, receiving bank/login OTPs, and making HD voice calls (including on Jio 4G/5G) now work properly.\n"
         "• Fixed Phone App Warning: Removed the \"This device isn't supported\" warning banner when opening the Phone app after a restart.\n"
-        "• Fixed PhonePe & Banking Apps: Stopped PhonePe and other UPI/banking apps from randomly closing or crashing when you open or switch back to them.\n"
-        "• Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away.\n"
-        "• Built-In KernelSU-Next Root Manager (v1.0.9): Pre-installed the matching KernelSU-Next v1.0.9 app out of the box, automatically replaces incompatible v3.x versions that show \"Kernel update required\", and disables self-updates so root stays working."
+        "• Fixed Double-Tap to Lock: Double-tapping empty space on the Home Screen now locks the phone right away."
     )
 
 manifest = {

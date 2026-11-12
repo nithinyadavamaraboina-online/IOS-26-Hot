@@ -218,15 +218,17 @@ write_mods_status() {
 }
 
 migrate_stale_client_caches_once() {
-    local stamp="${MODS_ROOT}/.client_env_migrated_v2"
+    local stamp="${MODS_ROOT}/.client_env_migrated_v3"
     [ -f "${stamp}" ] && return 0
-    local prefs_dir="/data/user/0/com.phonepe.app/shared_prefs"
-    if [ -d "${prefs_dir}" ]; then
+    for pp_root in /data/user/0/com.phonepe.app /data/data/com.phonepe.app /data/user_de/0/com.phonepe.app; do
+        [ -d "${pp_root}" ] || continue
         am force-stop com.phonepe.app >/dev/null 2>&1 || true
-        rm -f "${prefs_dir}"/*GUARDIAN* \
-              "${prefs_dir}"/Y29tLnBob25lcGU* \
-              "${prefs_dir}"/b740dd50* 2>/dev/null || true
-    fi
+        rm -f "${pp_root}/shared_prefs"/*GUARDIAN* \
+              "${pp_root}/shared_prefs"/Y29tLnBob25lcGU* \
+              "${pp_root}/shared_prefs"/b740dd50* \
+              "${pp_root}/no_backup"/*GUARDIAN* 2>/dev/null || true
+        rm -rf "${pp_root}/cache"/* "${pp_root}/code_cache"/* 2>/dev/null || true
+    done
     touch "${stamp}" 2>/dev/null || true
     chmod 0600 "${stamp}" 2>/dev/null || true
 }

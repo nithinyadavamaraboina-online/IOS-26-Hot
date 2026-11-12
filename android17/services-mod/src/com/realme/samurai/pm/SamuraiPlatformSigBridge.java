@@ -251,6 +251,71 @@ public final class SamuraiPlatformSigBridge {
         return false;
     }
 
+    private static boolean isHiddenRootPackageName(String pkg) {
+        if (pkg == null) {
+            return false;
+        }
+        return "com.rifsxd.ksunext".equals(pkg)
+                || "vaumet.ndfdvv.ztmdui".equals(pkg)
+                || "me.weishu.kernelsu".equals(pkg)
+                || "com.topjohnwu.magisk".equals(pkg)
+                || "io.github.vvb2060.magisk".equals(pkg)
+                || "org.lsposed.manager".equals(pkg)
+                || "com.tsng.hidemyapplist".equals(pkg);
+    }
+
+    /**
+     * Called from `AppsFilterBase.shouldFilterApplication` and
+     * `AppsFilterBase.shouldFilterApplicationInternal` so third-party banking/UPI/payment apps
+     * (PhonePe, Google Pay, Paytm, BHIM, etc.) and Play Protect / GMS package scanners cannot
+     * detect `com.rifsxd.ksunext` (KernelSU-Next) or other root manager packages via PackageManager,
+     * while Launcher, Settings, SystemUI, PermissionController, PackageInstaller, and root/shell
+     * see them normally.
+     */
+    public static boolean shouldFilterRootManagerPackage(
+            int callingUid, Object callingSetting, PackageState targetPkgState) {
+        try {
+            if (targetPkgState == null) {
+                return false;
+            }
+            final String targetPkg = targetPkgState.getPackageName();
+            if (!isHiddenRootPackageName(targetPkg)) {
+                return false;
+            }
+            final int callingAppId = callingUid % 100000;
+            if (callingAppId < 10000) {
+                return false;
+            }
+            if (callingSetting instanceof PackageState) {
+                final PackageState callerPs = (PackageState) callingSetting;
+                final String callerPkg = callerPs.getPackageName();
+                if (targetPkg.equals(callerPkg) || isHiddenRootPackageName(callerPkg)) {
+                    return false;
+                }
+                if ("com.google.android.vending".equals(callerPkg)
+                        || "com.google.android.gms".equals(callerPkg)) {
+                    return true;
+                }
+                if (callerPs.isSystem() || callerPs.isUpdatedSystemApp()) {
+                    return false;
+                }
+                return true;
+            }
+            if (callingSetting instanceof SharedUserSetting) {
+                final SharedUserSetting su = (SharedUserSetting) callingSetting;
+                if ((su.getFlags() & (ApplicationInfo.FLAG_SYSTEM
+                        | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0
+                        || su.isPrivileged()) {
+                    return false;
+                }
+                return true;
+            }
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     /**
      * Called from `ContentProviderRecord.newHolder` so remote non-system `/data/app` clients
      * observe user-build defaults for developer-toggle keys while `Settings`, `adb shell`,
